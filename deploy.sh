@@ -15,6 +15,7 @@ NC='\033[0m' # No Color
 # Configuration
 APP_NAME="SeekrAI"
 DOCKER_COMPOSE_FILE="docker-compose.yml"
+DEV_DOCKER_COMPOSE_FILE="docker-compose.dev.yml"
 ENV_FILE=".env"
 PRODUCTION_ENV_TEMPLATE=".env.production"
 
@@ -95,25 +96,43 @@ validate_env() {
 }
 
 build_and_deploy() {
-    log_info "Building and deploying $APP_NAME..."
+    log_info "Deploying $APP_NAME..."
+    
+    # Determine which compose file to use
+    local compose_file="$DOCKER_COMPOSE_FILE"
+    local mode="production"
+    
+    # Check if we're in development mode
+    if [ "${1:-}" == "dev" ] || [ "${FLASK_ENV:-}" == "development" ]; then
+        compose_file="$DEV_DOCKER_COMPOSE_FILE"
+        mode="development"
+        log_info "Using development mode (local build)"
+    else
+        log_info "Using production mode (Docker Hub image)"
+    fi
     
     # Set build date
     export BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
     
     # Build and start services
     if command -v docker-compose &> /dev/null; then
-        COMPOSE_CMD="docker-compose"
+        COMPOSE_CMD="docker-compose -f $compose_file"
     else
-        COMPOSE_CMD="docker compose"
+        COMPOSE_CMD="docker compose -f $compose_file"
     fi
     
-    log_info "Building Docker images..."
-    $COMPOSE_CMD build --no-cache
+    if [ "$mode" == "development" ]; then
+        log_info "Building Docker images locally..."
+        $COMPOSE_CMD build --no-cache
+    else
+        log_info "Pulling Docker images from Docker Hub..."
+        $COMPOSE_CMD pull
+    fi
     
     log_info "Starting services..."
     $COMPOSE_CMD up -d
     
-    log_success "Services started successfully."
+    log_success "Services started successfully in $mode mode."
 }
 
 wait_for_health() {
@@ -191,7 +210,7 @@ main() {
     fi
     
     cleanup_old_containers
-    build_and_deploy
+    build_and_deploy "$1"
     
     if wait_for_health; then
         show_status
@@ -210,32 +229,49 @@ main() {
 
 # Handle script arguments
 case "${1:-deploy}" in
-    "deploy")
-        main
+    "deploy"|"dev")
+        main "$1"
         ;;
     "stop")
         log_info "Stopping $APP_NAME services..."
-        if command -v docker-compose &> /dev/null; then
-            docker-compose down
-        else
-            docker compose down
-        fi
+        # Try to stop both production and dev versions
+        for compose_file in "$DOCKER_COMPOSE_FILE" "$DEV_DOCKER_COMPOSE_FILE"; do
+            if [ -f "$compose_file" ]; then
+                if command -v docker-compose &> /dev/null; then
+                    docker-compose -f "$compose_file" down 2>/dev/null || true
+                else
+                    docker compose -f "$compose_file" down 2>/dev/null || true
+                fi
+            fi
+        done
         log_success "Services stopped."
         ;;
     "restart")
         log_info "Restarting $APP_NAME services..."
+        # Determine which compose file is running
+        local active_compose="$DOCKER_COMPOSE_FILE"
+        if docker ps --format "table {{.Names}}" | grep -q "seekrai-app-dev"; then
+            active_compose="$DEV_DOCKER_COMPOSE_FILE"
+        fi
+        
         if command -v docker-compose &> /dev/null; then
-            docker-compose restart
+            docker-compose -f "$active_compose" restart
         else
-            docker compose restart
+            docker compose -f "$active_compose" restart
         fi
         log_success "Services restarted."
         ;;
     "logs")
+        # Determine which compose file is running
+        local active_compose="$DOCKER_COMPOSE_FILE"
+        if docker ps --format "table {{.Names}}" | grep -q "seekrai-app-dev"; then
+            active_compose="$DEV_DOCKER_COMPOSE_FILE"
+        fi
+        
         if command -v docker-compose &> /dev/null; then
-            docker-compose logs -f
+            docker-compose -f "$active_compose" logs -f
         else
-            docker compose logs -f
+            docker compose -f "$active_compose" logs -f
         fi
         ;;
     "status")
@@ -245,15 +281,21 @@ case "${1:-deploy}" in
         curl -s http://localhost:${PORT:-5000}/health | jq . || curl -s http://localhost:${PORT:-5000}/health
         ;;
     *)
-        echo "Usage: $0 [deploy|stop|restart|logs|status|health]"
+        echo "Usage: $0 [deploy|dev|stop|restart|logs|status|health]"
         echo
         echo "Commands:"
-        echo "  deploy  - Deploy the application (default)"
+        echo "  deploy  - Deploy using Docker Hub image (production)"
+        echo "  dev     - Deploy using local build (development)"
         echo "  stop    - Stop all services"
         echo "  restart - Restart all services"
         echo "  logs    - Show live logs"
         echo "  status  - Show service status"
         echo "  health  - Check application health"
+        echo
+        echo "Examples:"
+        echo "  ./deploy.sh         # Production deployment (Docker Hub)"
+        echo "  ./deploy.sh dev     # Development deployment (local build)"
+        echo "  ./deploy.sh stop    # Stop all services"
         exit 1
         ;;
 esac 
