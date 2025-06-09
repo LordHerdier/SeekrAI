@@ -2,6 +2,9 @@
 
 SeekrAI is an intelligent job analysis and processing platform that helps users analyze job postings, extract insights, and process job-related data using AI-powered tools.
 
+[![Docker Image](https://img.shields.io/badge/docker-lordherdier%2Fseekrai-blue)](https://hub.docker.com/r/lordherdier/seekrai)
+[![Docker Pulls](https://img.shields.io/docker/pulls/lordherdier/seekrai)](https://hub.docker.com/r/lordherdier/seekrai)
+
 ## 🚀 Features
 
 - **Job Data Processing**: Upload and analyze job posting data
@@ -169,18 +172,80 @@ seekrai/
 ├── Dockerfile           # Docker image configuration
 └── requirements.txt     # Python dependencies
 ```
-## 🐳 Production Deployment
+## 🐳 Docker Quick Start
 
-For production deployment, see [README_PRODUCTION.md](README_PRODUCTION.md) for detailed instructions using Docker.
-
-### Quick Production Setup
+### Pull and Run from Docker Hub
 ```bash
-# Copy production environment template
-cp .env.production .env
+# Pull the latest image
+docker pull lordherdier/seekrai:latest
 
-# Edit .env with your production values
-# Deploy with Docker Compose
+# Run with environment variables
+docker run -d \
+  -p 5000:5000 \
+  -e OPENAI_API_KEY=your_api_key_here \
+  -e SECRET_KEY=your_secret_key_here \
+  --name seekrai \
+  lordherdier/seekrai:latest
+```
+
+### Using Docker Compose (Recommended)
+
+#### Production Deployment (Docker Hub Image)
+```bash
+# Clone and configure
+git clone https://github.com/LordHerdier/seekrai.git
+cd seekrai
+cp .env.production .env
+# Edit .env with your values
+
+# Deploy using Docker Hub image
 ./deploy.sh
+# OR
+docker-compose up -d
+```
+
+#### Development Deployment (Local Build)
+```bash
+# Clone the repository
+git clone https://github.com/LordHerdier/seekrai.git
+cd seekrai
+
+# Deploy with local build for development
+./deploy.sh dev
+# OR  
+docker-compose -f docker-compose.dev.yml up -d
+```
+
+### Docker Compose Files
+
+- **`docker-compose.yml`** - Production deployment using Docker Hub image
+- **`docker-compose.dev.yml`** - Development deployment with local build and source code mounting
+
+### Available Docker Tags
+
+- `lordherdier/seekrai:latest` - Latest stable release
+- `lordherdier/seekrai:v1.0.0` - Specific version tags
+
+### Deployment Commands
+
+```bash
+# Production deployment (Docker Hub image)
+./deploy.sh
+
+# Development deployment (local build)  
+./deploy.sh dev
+
+# Stop all services
+./deploy.sh stop
+
+# View logs
+./deploy.sh logs
+
+# Check status
+./deploy.sh status
+
+# Health check
+./deploy.sh health
 ```
 
 ## 🔍 Usage Examples
