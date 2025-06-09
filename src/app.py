@@ -19,7 +19,14 @@ load_dotenv()
 # Initialize configuration
 config = get_config()
 
-app = Flask(__name__)
+# Get project root directory (parent of src/)
+project_root = Path(__file__).parent.parent
+
+# Initialize Flask app with correct template and static paths
+app = Flask(__name__, 
+           template_folder=str(project_root / 'templates'),
+           static_folder=str(project_root / 'static'))
+
 app.config['SECRET_KEY'] = config.get_secret_key()
 app.config['UPLOAD_FOLDER'] = config.get_upload_folder()
 app.config['JOB_RESULTS_FOLDER'] = config.get('files.job_results_folder', 'job_results')
