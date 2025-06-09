@@ -8,7 +8,7 @@ from resume_processor import ResumeProcessor
 
 load_dotenv()
 
-def test_resume_processing_pipeline(resume_file="sample_resume.txt", target_location=None, results_wanted=5):
+def test_resume_processing_pipeline(resume_file="sample_resume.txt", target_location=None, results_wanted=5, desired_position=None):
     """Test the complete pipeline: resume -> keywords -> search terms -> job scraping"""
     
     # Initialize the resume processor
@@ -19,12 +19,13 @@ def test_resume_processing_pipeline(resume_file="sample_resume.txt", target_loca
     print("="*60)
     print(f"Resume File: {resume_file}")
     print(f"Target Location: {target_location or 'From resume'}")
+    print(f"Desired Position: {desired_position or 'From resume analysis'}")
     print(f"Job Results Limit: {results_wanted}")
     print("="*60)
     
     try:
         # Process the resume
-        results = processor.process_resume(resume_file, target_location)
+        results = processor.process_resume(resume_file, target_location, desired_position)
         
         print("\n" + "="*40)
         print("EXTRACTED KEYWORDS:")
@@ -43,6 +44,10 @@ def test_resume_processing_pipeline(resume_file="sample_resume.txt", target_loca
             # Use primary search term for job scraping test
             primary_terms = search_data.get("primary_search_terms", ["software engineer"])
             search_term = primary_terms[0] if primary_terms else "software engineer"
+            
+            # If desired position was specified, prioritize it in the search
+            if desired_position and desired_position.lower() not in search_term.lower():
+                search_term = f"{desired_position} {search_term}".strip()
             
             location = search_data.get("location", target_location or "Remote")
             google_search = search_data.get("google_search_string", f"{search_term} jobs near {location}")
@@ -79,7 +84,8 @@ def test_resume_processing_pipeline(resume_file="sample_resume.txt", target_loca
                 
                 # Save results with resume-specific filename
                 resume_name = os.path.splitext(os.path.basename(resume_file))[0]
-                output_file = f"ai_generated_jobs_{resume_name}.csv"
+                position_suffix = f"_{desired_position.replace(' ', '_').lower()}" if desired_position else ""
+                output_file = f"ai_generated_jobs_{resume_name}{position_suffix}.csv"
                 jobs.to_csv(output_file, quoting=csv.QUOTE_NONNUMERIC, escapechar="\\", index=False)
                 print(f"\nResults saved to {output_file}")
                 
@@ -134,6 +140,8 @@ Examples:
   python main.py -r my_resume.pdf                        # Test with PDF resume
   python main.py -r resume.docx -l "New York, NY"        # Specify location
   python main.py -r resume.txt -l "Remote" -n 10         # Get 10 job results
+  python main.py -r resume.pdf -p "Data Scientist"       # Target specific position
+  python main.py -r resume.txt -p "Senior DevOps Engineer" -l "Austin, TX" -n 8
   python main.py --test-api-only                         # Only test OpenAI connection
         """
     )
@@ -149,6 +157,12 @@ Examples:
         "-l", "--location", 
         type=str, 
         help="Target job location (overrides location from resume). Example: 'New York, NY' or 'Remote'"
+    )
+    
+    parser.add_argument(
+        "-p", "--position", 
+        type=str, 
+        help="Desired position/role to target (influences search term generation). Example: 'Data Scientist' or 'Senior Backend Engineer'"
     )
     
     parser.add_argument(
@@ -197,7 +211,7 @@ Examples:
         print("Note: Skipping job scraping as requested")
         processor = ResumeProcessor()
         try:
-            results = processor.process_resume(args.resume, args.location)
+            results = processor.process_resume(args.resume, args.location, args.position)
             print("\n" + "="*40)
             print("EXTRACTED KEYWORDS:")
             print("="*40)
@@ -211,7 +225,7 @@ Examples:
         except Exception as e:
             print(f"❌ Error processing resume: {e}")
     else:
-        test_resume_processing_pipeline(args.resume, args.location, args.num_jobs)
+        test_resume_processing_pipeline(args.resume, args.location, args.num_jobs, args.position)
 
 if __name__ == "__main__":
     main()

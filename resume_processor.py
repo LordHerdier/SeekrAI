@@ -90,8 +90,10 @@ class ResumeProcessor:
             print(f"Error extracting keywords: {e}")
             return {}
     
-    def generate_search_terms(self, keywords_data: Dict, target_location: str = None) -> Dict:
+    def generate_search_terms(self, keywords_data: Dict, target_location: str = None, desired_position: str = None) -> Dict:
         """Generate optimized search terms for job boards based on extracted keywords"""
+        
+        desired_position_context = f"\nDesired Position: {desired_position}" if desired_position else ""
         
         prompt = f"""
         Based on the following extracted resume information, generate optimized search terms for job board scraping:
@@ -99,15 +101,17 @@ class ResumeProcessor:
         Resume Data:
         {json.dumps(keywords_data, indent=2)}
 
-        Target Location: {target_location or "Not specified"}
+        Target Location: {target_location or "Not specified"}{desired_position_context}
 
         Please generate the following search parameters in JSON format:
-        1. Primary search terms (2-3 most relevant job titles/roles)
-        2. Secondary search terms (broader terms that might be relevant to the applicant)
+        1. Primary search terms (2-3 most relevant job titles/roles{' - prioritize the desired position if provided' if desired_position else ''})
+        2. Secondary search terms (broader terms that might capture relevant jobs)
         3. Skills-based search terms (combinations of key technical skills)
         4. Suggested location (use target_location if provided, otherwise extract from resume)
         5. Experience level filter suggestions
         6. Google search optimization string (for sites that support it)
+
+        {f'IMPORTANT: The user specifically wants to target "{desired_position}" roles. Please prioritize this position in your search terms while still considering the resume skills and experience.' if desired_position else ''}
 
         Format your response as a JSON object:
         {{
@@ -124,7 +128,7 @@ class ResumeProcessor:
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You are an expert recruiter who understands how to optimize job search queries for maximum relevant results."},
+                    {"role": "system", "content": "You are an expert recruiter who understands how to optimize job search queries for maximum relevant results. When a desired position is specified, prioritize it while leveraging the candidate's existing skills."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3
@@ -145,10 +149,12 @@ class ResumeProcessor:
             print(f"Error generating search terms: {e}")
             return {}
     
-    def process_resume(self, resume_file_path: str, target_location: str = None) -> Dict:
+    def process_resume(self, resume_file_path: str, target_location: str = None, desired_position: str = None) -> Dict:
         """Complete pipeline: read resume, extract keywords, generate search terms"""
         
         print(f"Processing resume: {resume_file_path}")
+        if desired_position:
+            print(f"Targeting position: {desired_position}")
         
         # Step 1: Read resume content
         resume_content = self.read_resume_file(resume_file_path)
@@ -160,10 +166,11 @@ class ResumeProcessor:
         
         # Step 3: Generate search terms
         print("Generating search terms...")
-        search_terms = self.generate_search_terms(keywords_data, target_location)
+        search_terms = self.generate_search_terms(keywords_data, target_location, desired_position)
         
         return {
             "keywords": keywords_data,
             "search_terms": search_terms,
-            "resume_length": len(resume_content)
+            "resume_length": len(resume_content),
+            "desired_position": desired_position
         } 

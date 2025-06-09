@@ -44,13 +44,15 @@ def test_keyword_extraction(resume_file):
         print(f"❌ Keyword extraction failed: {e}")
         return None
 
-def test_search_term_generation(keywords_data, target_location):
+def test_search_term_generation(keywords_data, target_location, desired_position):
     """Test search term generation with sample keywords"""
-    print(f"\nTesting search term generation (location: {target_location})...")
+    location_text = target_location or "Not specified"
+    position_text = desired_position or "Not specified"
+    print(f"\nTesting search term generation (location: {location_text}, position: {position_text})...")
     processor = ResumeProcessor()
     
     try:
-        search_terms = processor.generate_search_terms(keywords_data, target_location)
+        search_terms = processor.generate_search_terms(keywords_data, target_location, desired_position)
         
         print("✅ Search terms generated successfully:")
         print(json.dumps(search_terms, indent=2))
@@ -59,13 +61,14 @@ def test_search_term_generation(keywords_data, target_location):
         print(f"❌ Search term generation failed: {e}")
         return None
 
-def run_component_tests(resume_file, target_location):
+def run_component_tests(resume_file, target_location, desired_position):
     """Run all component tests individually"""
     print("="*50)
     print("COMPONENT-BY-COMPONENT TESTING")
     print("="*50)
     print(f"Resume File: {resume_file}")
     print(f"Target Location: {target_location or 'From resume'}")
+    print(f"Desired Position: {desired_position or 'From resume analysis'}")
     print("="*50)
     
     # Test 1: Resume reading
@@ -78,7 +81,7 @@ def run_component_tests(resume_file, target_location):
         return
     
     # Test 3: Search term generation
-    search_terms = test_search_term_generation(keywords, target_location)
+    search_terms = test_search_term_generation(keywords, target_location, desired_position)
     if not search_terms:
         return
     
@@ -100,6 +103,8 @@ Examples:
   python test_components.py                               # Use default sample_resume.txt
   python test_components.py -r my_resume.pdf             # Test with PDF resume
   python test_components.py -r resume.docx -l "Remote"   # Test with location override
+  python test_components.py -r resume.txt -p "Data Scientist"  # Test targeting specific position
+  python test_components.py -r resume.pdf -p "ML Engineer" -l "San Francisco, CA"  # Full test
         """
     )
     
@@ -116,6 +121,12 @@ Examples:
         help="Target job location for search term generation. Example: 'New York, NY' or 'Remote'"
     )
     
+    parser.add_argument(
+        "-p", "--position", 
+        type=str, 
+        help="Desired position/role to target. Example: 'Data Scientist' or 'Senior Backend Engineer'"
+    )
+    
     args = parser.parse_args()
     
     # Check if resume file exists
@@ -127,11 +138,16 @@ Examples:
                 print(f"  - {file}")
         return
     
-    results = run_component_tests(args.resume, args.location)
+    results = run_component_tests(args.resume, args.location, args.position)
     
     if results:
         print(f"\nYou can now run the full pipeline with:")
-        print(f"python main.py -r {args.resume}" + (f" -l \"{args.location}\"" if args.location else ""))
+        cmd = f"python main.py -r {args.resume}"
+        if args.location:
+            cmd += f' -l "{args.location}"'
+        if args.position:
+            cmd += f' -p "{args.position}"'
+        print(cmd)
 
 if __name__ == "__main__":
     main() 
