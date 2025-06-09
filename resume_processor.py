@@ -13,8 +13,17 @@ class ResumeProcessor:
     def __init__(self, cache_dir: str = ".cache"):
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(exist_ok=True)
+        self._ensure_cache_directory()
         
+    def _ensure_cache_directory(self):
+        """Ensure the cache directory exists"""
+        try:
+            self.cache_dir.mkdir(exist_ok=True)
+        except Exception as e:
+            print(f"Warning: Could not create cache directory {self.cache_dir}: {e}")
+            # Fall back to current directory if cache creation fails
+            self.cache_dir = Path(".")
+
     def _generate_cache_key(self, content: str, operation: str, **kwargs) -> str:
         """Generate a unique cache key based on content and parameters"""
         # Create a string that includes content + operation + any additional parameters
@@ -29,34 +38,47 @@ class ResumeProcessor:
         """Retrieve cached response if it exists and is valid"""
         cache_file = self.cache_dir / f"{cache_key}.json"
         
-        if cache_file.exists():
+        if not cache_file.exists():
+            return {}
+        
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                cached_data = json.load(f)
+            
+            # Check if cache is less than 7 days old
+            cache_time = datetime.fromisoformat(cached_data.get('timestamp', ''))
+            if (datetime.now() - cache_time).days < 7:
+                print(f"✅ Using cached response for {cache_key[:8]}...")
+                return cached_data.get('response', {})
+            else:
+                # Cache expired, remove it
+                cache_file.unlink()
+                print(f"🗑️  Expired cache removed for {cache_key[:8]}")
+        except (json.JSONDecodeError, KeyError, ValueError, OSError) as e:
+            # Invalid or corrupted cache file, remove it
             try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    cached_data = json.load(f)
-                
-                # Check if cache is less than 24 hours old (optional expiration)
-                cache_time = datetime.fromisoformat(cached_data.get('timestamp', ''))
-                if (datetime.now() - cache_time).days < 7:  # 7 day cache expiration
-                    print(f"✅ Using cached response for {cache_key[:8]}...")
-                    return cached_data.get('response', {})
-            except (json.JSONDecodeError, KeyError, ValueError):
-                # Invalid cache file, will regenerate
+                cache_file.unlink()
+                print(f"🗑️  Corrupted cache removed for {cache_key[:8]}: {e}")
+            except OSError:
                 pass
         
         return {}
     
     def _save_cached_response(self, cache_key: str, response: Dict) -> None:
         """Save response to cache"""
-        cache_file = self.cache_dir / f"{cache_key}.json"
-        cache_data = {
-            'timestamp': datetime.now().isoformat(),
-            'response': response
-        }
-        
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            json.dump(cache_data, f, indent=2)
-        
-        print(f"💾 Cached response for {cache_key[:8]}...")
+        try:
+            cache_file = self.cache_dir / f"{cache_key}.json"
+            cache_data = {
+                'timestamp': datetime.now().isoformat(),
+                'response': response
+            }
+            
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, indent=2)
+            
+            print(f"💾 Cached response for {cache_key[:8]}...")
+        except Exception as e:
+            print(f"Warning: Could not save cache for {cache_key[:8]}: {e}")
     
     def anonymize_resume(self, resume_content: str) -> str:
         """Remove or anonymize PII from resume content"""
@@ -301,11 +323,24 @@ class ResumeProcessor:
     
     def clear_cache(self) -> None:
         """Clear all cached responses"""
-        import shutil
-        if self.cache_dir.exists():
-            shutil.rmtree(self.cache_dir)
-            self.cache_dir.mkdir()
-            print("🗑️  Cache cleared")
+        try:
+            import shutil
+            if self.cache_dir.exists():
+                # Remove all .json files in cache directory
+                cache_files = list(self.cache_dir.glob("*.json"))
+                deleted_count = 0
+                for cache_file in cache_files:
+                    try:
+                        cache_file.unlink()
+                        deleted_count += 1
+                    except Exception as e:
+                        print(f"Warning: Could not delete cache file {cache_file}: {e}")
+                
+                print(f"🗑️  Cache cleared - {deleted_count} files deleted")
+            else:
+                print("🗑️  Cache directory doesn't exist")
+        except Exception as e:
+            print(f"Error clearing cache: {e}")
     
     def get_cache_info(self) -> Dict:
         """Get information about cached responses"""
@@ -317,41 +352,51 @@ class ResumeProcessor:
                 "cache_files": []
             }
         
-        cache_files = list(self.cache_dir.glob("*.json"))
-        total_size = sum(f.stat().st_size for f in cache_files)
-        
-        # Get detailed info about each cache file
-        cache_file_details = []
-        for cache_file in cache_files:
-            try:
-                # Read the cache file to get timestamp and check if expired
-                with open(cache_file, 'r') as f:
-                    cache_data = json.load(f)
-                
-                created_time = datetime.fromisoformat(cache_data.get('timestamp', ''))
-                is_expired = (datetime.now() - created_time).days > 7
-                
-                cache_file_details.append({
-                    'key': cache_file.stem,  # filename without extension
-                    'created': created_time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'size_kb': round(cache_file.stat().st_size / 1024, 2),
-                    'is_expired': is_expired
-                })
-            except Exception as e:
-                # If we can't read a cache file, just show basic info
-                cache_file_details.append({
-                    'key': cache_file.stem,
-                    'created': 'Unknown',
-                    'size_kb': round(cache_file.stat().st_size / 1024, 2),
-                    'is_expired': False
-                })
-        
-        return {
-            "cache_files_count": len(cache_files),
-            "total_size_mb": round(total_size / (1024 * 1024), 2),
-            "cache_directory": str(self.cache_dir),
-            "cache_files": cache_file_details
-        }
+        try:
+            cache_files = list(self.cache_dir.glob("*.json"))
+            total_size = sum(f.stat().st_size for f in cache_files if f.is_file())
+            
+            # Get detailed info about each cache file
+            cache_file_details = []
+            for cache_file in cache_files:
+                try:
+                    # Read the cache file to get timestamp and check if expired
+                    with open(cache_file, 'r', encoding='utf-8') as f:
+                        cache_data = json.load(f)
+                    
+                    created_time = datetime.fromisoformat(cache_data.get('timestamp', ''))
+                    is_expired = (datetime.now() - created_time).days > 7
+                    
+                    cache_file_details.append({
+                        'key': cache_file.stem,  # filename without extension
+                        'created': created_time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'size_kb': round(cache_file.stat().st_size / 1024, 2),
+                        'is_expired': is_expired
+                    })
+                except Exception as e:
+                    # If we can't read a cache file, just show basic info
+                    cache_file_details.append({
+                        'key': cache_file.stem,
+                        'created': 'Unknown',
+                        'size_kb': round(cache_file.stat().st_size / 1024, 2) if cache_file.exists() else 0,
+                        'is_expired': False,
+                        'error': str(e)
+                    })
+            
+            return {
+                "cache_files_count": len(cache_files),
+                "total_size_mb": round(total_size / (1024 * 1024), 2),
+                "cache_directory": str(self.cache_dir),
+                "cache_files": cache_file_details
+            }
+        except Exception as e:
+            return {
+                "cache_files_count": 0,
+                "total_size_mb": 0,
+                "cache_directory": str(self.cache_dir),
+                "cache_files": [],
+                "error": str(e)
+            }
     
     def process_resume(self, resume_file_path: str, target_location: str = None, desired_position: str = None) -> Dict:
         """Complete pipeline: read resume, extract keywords, generate search terms"""

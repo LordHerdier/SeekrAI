@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}File Management - SeekrAI{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">📁 File Management</h1>
+    
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card text-bg-primary">
+                <div class="card-body">
+                    <h5 class="card-title">📄 Uploaded Resumes</h5>
+                    <h2 class="card-text">{{ upload_files|length }}</h2>
+                    <small>Total uploaded files</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card text-bg-success">
+                <div class="card-body">
+                    <h5 class="card-title">📊 Job Results</h5>
+                    <h2 class="card-text">{{ result_files|length }}</h2>
+                    <small>Generated CSV files</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cleanup Controls -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">🧹 File Cleanup</h5>
+            <p class="card-text">Remove old files to free up storage space.</p>
+            
+            <div class="row">
+                <div class="col-md-4">
+                    <label for="daysOld" class="form-label">Delete files older than:</label>
+                    <select class="form-select" id="daysOld">
+                        <option value="7">7 days</option>
+                        <option value="14">14 days</option>
+                        <option value="30" selected>30 days</option>
+                        <option value="60">60 days</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">File types to clean:</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="cleanupUploads">
+                        <label class="form-check-label" for="cleanupUploads">
+                            Uploaded resumes
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="cleanupResults">
+                        <label class="form-check-label" for="cleanupResults">
+                            Job result files
+                        </label>
+                    </div>
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button type="button" class="btn btn-warning" onclick="cleanupFiles()">
+                        🧹 Clean Up Files
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Uploaded Resumes -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">📄 Uploaded Resumes</h5>
+        </div>
+        <div class="card-body">
+            {% if upload_files %}
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Filename</th>
+                                <th>Size</th>
+                                <th>Modified</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for file in upload_files %}
+                            <tr>
+                                <td>
+                                    <i class="bi bi-file-earmark-text"></i>
+                                    {{ file.name }}
+                                </td>
+                                <td>{{ file.size_mb }} MB</td>
+                                <td>{{ file.modified }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted">No uploaded resume files found.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Job Result Files -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">📊 Job Result Files</h5>
+        </div>
+        <div class="card-body">
+            {% if result_files %}
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Filename</th>
+                                <th>Size</th>
+                                <th>Modified</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for file in result_files %}
+                            <tr>
+                                <td>
+                                    <i class="bi bi-file-earmark-spreadsheet"></i>
+                                    {{ file.name }}
+                                </td>
+                                <td>{{ file.size_mb }} MB</td>
+                                <td>{{ file.modified }}</td>
+                                <td>
+                                    <a href="{{ url_for('download_file', filename=file.name) }}" 
+                                       class="btn btn-sm btn-outline-primary">
+                                        📥 Download
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted">No job result files found.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="text-center">
+        <a href="{{ url_for('index') }}" class="btn btn-primary">← Back to Home</a>
+        <a href="{{ url_for('cache_info') }}" class="btn btn-outline-secondary">🗄️ Cache Info</a>
+    </div>
+</div>
+
+<script>
+function cleanupFiles() {
+    const daysOld = document.getElementById('daysOld').value;
+    const cleanupUploads = document.getElementById('cleanupUploads').checked;
+    const cleanupResults = document.getElementById('cleanupResults').checked;
+    
+    if (!cleanupUploads && !cleanupResults) {
+        alert('Please select at least one file type to clean up.');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete files older than ${daysOld} days?`)) {
+        return;
+    }
+    
+    const button = event.target;
+    button.disabled = true;
+    button.innerHTML = '⏳ Cleaning...';
+    
+    fetch('/cleanup_files', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            days_old: parseInt(daysOld),
+            cleanup_uploads: cleanupUploads,
+            cleanup_results: cleanupResults
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            location.reload(); // Refresh the page to show updated file list
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred during cleanup.');
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.innerHTML = '🧹 Clean Up Files';
+    });
+}
+</script>
+{% endblock %} 
