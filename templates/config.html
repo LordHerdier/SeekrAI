@@ -481,7 +481,10 @@ function showAlert(type, message) {
             'salary_extraction_confidence_threshold': 'Minimum confidence for salary extraction',
             'similarity_ranking_model': 'OpenAI model for similarity ranking',
             'batch_size': 'Jobs processed per API call',
-            'cache_analysis_results': 'Cache analysis results to save costs'
+            'cache_analysis_results': 'Cache analysis results to save costs',
+            'parallel_processing': 'Enable parallel batch processing for faster analysis',
+            'max_parallel_batches': 'Maximum number of batches to process simultaneously',
+            'request_delay_seconds': 'Delay between API requests to respect rate limits'
         }
     } %}
     {{ help_texts.get(section, {}).get(key, '') }}

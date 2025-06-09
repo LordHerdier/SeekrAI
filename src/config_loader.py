@@ -321,6 +321,22 @@ class ConfigLoader:
         """Get batch size for job analysis API calls."""
         return self.get('job_analysis.batch_size', 5)
     
+    def get_job_analysis_parallel_enabled(self) -> bool:
+        """Get whether parallel batch processing is enabled."""
+        return self.get('job_analysis.parallel_processing', True)
+    
+    def get_job_analysis_max_parallel_batches(self) -> int:
+        """Get maximum number of parallel batches to process."""
+        return self.get('job_analysis.max_parallel_batches', 3)
+    
+    def get_job_analysis_request_delay(self) -> float:
+        """Get delay between API requests in seconds."""
+        return self.get('job_analysis.request_delay_seconds', 0.5)
+    
+    def get_job_analysis_parallel_workers(self) -> int:
+        """Get maximum number of parallel workers for job analysis."""
+        return self.get('job_analysis.max_parallel_batches', 3)
+    
     def get_salary_analysis_enabled(self) -> bool:
         """Get whether salary extraction is enabled."""
         return self.get('job_analysis.analyze_salary', True)

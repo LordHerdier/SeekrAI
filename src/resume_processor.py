@@ -11,13 +11,15 @@ import json
 import hashlib
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from openai import OpenAI
-from typing import List, Dict
+from typing import List, Dict, Optional, Any
 import PyPDF2
 from docx import Document
 from config_loader import get_config
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 class ResumeProcessor:
     def __init__(self, cache_dir: str = None):
@@ -556,6 +558,7 @@ class ResumeProcessor:
         Returns:
             List of job dictionaries with added analysis data
         """
+        start_time = time.time()
         self.logger.info(f"Starting job analysis for {len(jobs_data)} jobs")
         
         if not self.config.get_job_analysis_enabled():
@@ -574,20 +577,13 @@ class ResumeProcessor:
         
         self.logger.debug(f"Processing jobs in {total_batches} batches of size {batch_size}")
         
-        # Process jobs in batches to optimize API calls
-        for i in range(0, len(jobs_to_analyze), batch_size):
-            batch_num = (i // batch_size) + 1
-            batch = jobs_to_analyze[i:i + batch_size]
-            self.logger.debug(f"Processing batch {batch_num}/{total_batches} with {len(batch)} jobs")
-            
-            batch_results = self._analyze_job_batch(batch, resume_keywords)
-            analyzed_jobs.extend(batch_results)
-            
-            # Add a small delay between batches to be respectful to the API
-            if i + batch_size < len(jobs_to_analyze):
-                import time
-                time.sleep(0.5)
-                self.logger.debug("Added delay between API batches")
+        # Check if parallel processing is enabled
+        if self.config.get_job_analysis_parallel_enabled() and total_batches > 1:
+            self.logger.info(f"Using parallel processing for {total_batches} batches")
+            analyzed_jobs = self._process_batches_parallel(jobs_to_analyze, batch_size, resume_keywords)
+        else:
+            self.logger.info("Using sequential processing")
+            analyzed_jobs = self._process_batches_sequential(jobs_to_analyze, batch_size, resume_keywords)
         
         # Add unanalyzed jobs back to the list with default scores
         remaining_jobs = jobs_data[analysis_limit:]
@@ -610,7 +606,76 @@ class ResumeProcessor:
             self.logger.debug(f"Top 5 similarity scores before sorting: {original_order}")
             self.logger.debug(f"Top 5 similarity scores after sorting: {new_order}")
         
-        self.logger.info(f"Job analysis completed - {len(analyzed_jobs)} total jobs processed")
+        elapsed_time = time.time() - start_time
+        self.logger.info(f"Job analysis completed in {elapsed_time:.2f} seconds - {len(analyzed_jobs)} total jobs processed")
+        return analyzed_jobs
+    
+    def _process_batches_parallel(self, jobs_to_analyze: List[Dict], batch_size: int, resume_keywords: Dict) -> List[Dict]:
+        """Process job batches in parallel"""
+        self.logger.debug(f"Processing {len(jobs_to_analyze)} jobs in parallel")
+        
+        analyzed_jobs = []
+        batch_data = []
+        
+        # Prepare batch data with indices to maintain order
+        for i in range(0, len(jobs_to_analyze), batch_size):
+            batch = jobs_to_analyze[i:i + batch_size]
+            batch_data.append((i // batch_size, batch))
+        
+        max_workers = self.config.get_job_analysis_parallel_workers()
+        delay_between_requests = self.config.get_job_analysis_request_delay()
+        
+        self.logger.info(f"Processing {len(batch_data)} batches with max {max_workers} parallel workers")
+        
+        # Create a ThreadPoolExecutor to process job batches in parallel
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all batch jobs with a delay between submissions to be API-friendly
+            futures_to_batch = {}
+            for batch_idx, batch in batch_data:
+                future = executor.submit(self._analyze_job_batch_with_delay, batch, resume_keywords, delay_between_requests)
+                futures_to_batch[future] = batch_idx
+                
+                # Small delay between submissions to be respectful
+                if batch_idx < len(batch_data) - 1:
+                    time.sleep(0.1)
+            
+            # Collect results in order
+            batch_results = [None] * len(batch_data)
+            for future in as_completed(futures_to_batch):
+                batch_idx = futures_to_batch[future]
+                try:
+                    batch_result = future.result()
+                    batch_results[batch_idx] = batch_result
+                    self.logger.debug(f"Completed batch {batch_idx + 1}/{len(batch_data)}")
+                except Exception as e:
+                    self.logger.error(f"Error in parallel batch {batch_idx + 1}: {str(e)}")
+                    # Use default analysis for failed batch
+                    batch_results[batch_idx] = self._create_default_analysis(batch_data[batch_idx][1])
+            
+            # Combine results from all batches in order
+            for batch_result in batch_results:
+                if batch_result:
+                    analyzed_jobs.extend(batch_result)
+        
+        self.logger.info(f"Parallel processing completed - processed {len(analyzed_jobs)} jobs")
+        return analyzed_jobs
+    
+    def _analyze_job_batch_with_delay(self, jobs_batch: List[Dict], resume_keywords: Dict, delay: float) -> List[Dict]:
+        """Analyze a batch of jobs with an optional delay for rate limiting"""
+        if delay > 0:
+            time.sleep(delay)
+        return self._analyze_job_batch(jobs_batch, resume_keywords)
+    
+    def _process_batches_sequential(self, jobs_to_analyze: List[Dict], batch_size: int, resume_keywords: Dict) -> List[Dict]:
+        """Process job batches sequentially"""
+        self.logger.debug(f"Processing {len(jobs_to_analyze)} jobs sequentially")
+        
+        analyzed_jobs = []
+        for i in range(0, len(jobs_to_analyze), batch_size):
+            batch = jobs_to_analyze[i:i + batch_size]
+            analyzed_jobs.extend(self._analyze_job_batch(batch, resume_keywords))
+        
+        self.logger.debug(f"Processed {len(analyzed_jobs)} jobs sequentially")
         return analyzed_jobs
     
     def _analyze_job_batch(self, jobs_batch: List[Dict], resume_keywords: Dict) -> List[Dict]:

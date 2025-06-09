@@ -1,5 +1,7 @@
+import os
 import json
 import logging
+from datetime import datetime
 from typing import List, Dict
 from openai import OpenAI
 from config_loader import get_config
@@ -7,6 +9,8 @@ from .file_reader import FileReader
 from .pii_anonymizer import PIIAnonymizer
 from .cache_manager import CacheManager
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 
 class ResumeProcessor:
@@ -175,17 +179,14 @@ class ResumeProcessor:
         batch_size = self.config.get('job_analysis.batch_size', 5)
         analyzed_jobs = []
         
-        for i in range(0, len(jobs_to_analyze), batch_size):
-            batch = jobs_to_analyze[i:i + batch_size]
-            self.logger.debug(f"Processing job batch {i//batch_size + 1}: jobs {i+1}-{min(i+batch_size, len(jobs_to_analyze))}")
-            
-            try:
-                analyzed_batch = self._analyze_job_batch(batch, resume_keywords)
-                analyzed_jobs.extend(analyzed_batch)
-            except Exception as e:
-                self.logger.error(f"Error analyzing job batch {i//batch_size + 1}: {str(e)}")
-                # Add unanalyzed jobs to maintain list completeness
-                analyzed_jobs.extend(self._create_default_analysis(batch))
+        # Check if parallel processing is enabled and we have multiple batches
+        total_batches = (len(jobs_to_analyze) + batch_size - 1) // batch_size
+        if self.config.get('job_analysis.parallel_processing', True) and total_batches > 1:
+            self.logger.info(f"Using parallel processing for {total_batches} batches")
+            analyzed_jobs = self._process_batches_parallel(jobs_to_analyze, batch_size, resume_keywords)
+        else:
+            self.logger.info("Using sequential processing")
+            analyzed_jobs = self._process_batches_sequential(jobs_to_analyze, batch_size, resume_keywords)
         
         # Add remaining jobs that weren't analyzed
         if max_jobs > 0 and len(jobs_data) > max_jobs:
@@ -290,6 +291,39 @@ class ResumeProcessor:
                 return json.loads(json_content)
             
             raise ValueError(f"Could not parse JSON from response: {content[:200]}...")
+    
+    def _process_batches_parallel(self, jobs_to_analyze: List[Dict], batch_size: int, resume_keywords: Dict) -> List[Dict]:
+        """Process batches of jobs in parallel"""
+        analyzed_jobs = []
+        futures = []
+        
+        with ThreadPoolExecutor(max_workers=self.config.get('job_analysis.parallel_workers', 5)) as executor:
+            for i in range(0, len(jobs_to_analyze), batch_size):
+                batch = jobs_to_analyze[i:i + batch_size]
+                futures.append(executor.submit(self._analyze_job_batch, batch, resume_keywords))
+            
+            for future in as_completed(futures):
+                analyzed_jobs.extend(future.result())
+        
+        return analyzed_jobs
+    
+    def _process_batches_sequential(self, jobs_to_analyze: List[Dict], batch_size: int, resume_keywords: Dict) -> List[Dict]:
+        """Process batches of jobs sequentially"""
+        analyzed_jobs = []
+        
+        for i in range(0, len(jobs_to_analyze), batch_size):
+            batch = jobs_to_analyze[i:i + batch_size]
+            self.logger.debug(f"Processing job batch {i//batch_size + 1}: jobs {i+1}-{min(i+batch_size, len(jobs_to_analyze))}")
+            
+            try:
+                analyzed_batch = self._analyze_job_batch(batch, resume_keywords)
+                analyzed_jobs.extend(analyzed_batch)
+            except Exception as e:
+                self.logger.error(f"Error analyzing job batch {i//batch_size + 1}: {str(e)}")
+                # Add unanalyzed jobs to maintain list completeness
+                analyzed_jobs.extend(self._create_default_analysis(batch))
+        
+        return analyzed_jobs
     
     def _analyze_job_batch(self, jobs_batch: List[Dict], resume_keywords: Dict) -> List[Dict]:
         """Analyze a batch of jobs (simplified version)"""

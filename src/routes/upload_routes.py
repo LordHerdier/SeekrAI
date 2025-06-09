@@ -1,8 +1,8 @@
 import os
 from datetime import datetime
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from werkzeug.utils import secure_filename
-from resume_processor import ResumeProcessor
+from processors.resume_processor import ResumeProcessor
 import logging
 
 # Create blueprint
