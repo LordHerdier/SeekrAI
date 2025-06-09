@@ -15,6 +15,39 @@
     </div>
 </div>
 
+<!-- User Preferences Section (NEW) -->
+{% if data.desired_position or data.target_location %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-primary">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-user-cog me-2"></i>Your Job Search Preferences
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% if data.desired_position %}
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-crosshairs me-1 text-primary"></i>Target Position</h6>
+                        <p class="mb-0"><strong class="text-primary">{{ data.desired_position }}</strong></p>
+                        <small class="text-muted">You specified this position</small>
+                    </div>
+                    {% endif %}
+                    {% if data.target_location %}
+                    <div class="col-md-6">
+                        <h6><i class="fas fa-map-marker-alt me-1 text-primary"></i>Target Location</h6>
+                        <p class="mb-0"><strong class="text-primary">{{ data.target_location }}</strong></p>
+                        <small class="text-muted">You specified this location</small>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="row">
     <!-- Left Column: Analysis Results -->
     <div class="col-md-6">
@@ -70,8 +103,11 @@
                                 <p class="mb-0">{{ data.keywords.years_of_experience }}</p>
                             </div>
                             <div class="col-6">
-                                <h6><i class="fas fa-map-marker-alt me-1"></i>Location</h6>
+                                <h6><i class="fas fa-map-marker-alt me-1"></i>Location from Resume</h6>
                                 <p class="mb-0">{{ data.keywords.location }}</p>
+                                {% if data.target_location and data.target_location != data.keywords.location %}
+                                    <small class="text-muted">Search target: <strong>{{ data.target_location }}</strong></small>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -97,13 +133,18 @@
                                 <span class="badge bg-primary">{{ term }}</span>
                             {% endfor %}
                         </div>
+                        {% if data.desired_position %}
+                            <small class="text-muted mt-1 d-block">
+                                <i class="fas fa-info-circle me-1"></i>Optimized for your target position: <strong>{{ data.desired_position }}</strong>
+                            </small>
+                        {% endif %}
                     </div>
                     
                     <div class="mb-3">
                         <h6><i class="fas fa-plus me-1"></i>Secondary Search Terms</h6>
                         <div class="d-flex flex-wrap gap-1">
                             {% for term in data.search_terms.secondary_search_terms %}
-                                <span class="badge bg-outline-primary">{{ term }}</span>
+                                <span class="badge bg-secondary">{{ term }}</span>
                             {% endfor %}
                         </div>
                     </div>
@@ -120,6 +161,11 @@
                     <div class="alert alert-light">
                         <h6><i class="fas fa-google me-1"></i>Google Search String</h6>
                         <code>{{ data.search_terms.google_search_string }}</code>
+                        {% if data.target_location %}
+                            <small class="text-muted d-block mt-1">
+                                <i class="fas fa-map-marker-alt me-1"></i>Targeting location: <strong>{{ data.target_location }}</strong>
+                            </small>
+                        {% endif %}
                     </div>
                 {% else %}
                     <p class="text-muted">No search terms generated</p>
