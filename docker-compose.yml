@@ -1,0 +1,65 @@
+services:
+  seekrai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_DATE: ${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+        VERSION: ${VERSION:-1.0.0}
+    container_name: seekrai-app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-5000}:5000"
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=${SECRET_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - GUNICORN_WORKERS=${GUNICORN_WORKERS:-4}
+    volumes:
+      - seekrai_uploads:/app/uploads
+      - seekrai_job_results:/app/job_results
+      - seekrai_cache:/app/.cache
+      - seekrai_logs:/app/logs
+    depends_on:
+      - redis
+    networks:
+      - seekrai-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: seekrai-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - seekrai_redis_data:/data
+    networks:
+      - seekrai-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  seekrai_uploads:
+    driver: local
+  seekrai_job_results:
+    driver: local
+  seekrai_cache:
+    driver: local
+  seekrai_logs:
+    driver: local
+  seekrai_redis_data:
+    driver: local
+
+networks:
+  seekrai-network:
+    driver: bridge 

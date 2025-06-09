@@ -1,6 +1,7 @@
 import os
 import yaml
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Union
 
@@ -11,6 +12,48 @@ def _get_project_root():
     current_dir = Path(__file__).parent
     # Go up one level to get the project root
     return current_dir.parent
+
+
+def _substitute_env_vars(value):
+    """
+    Substitute environment variables in a string value.
+    Supports ${VAR:-default}, ${VAR}, and $VAR syntax.
+    """
+    if not isinstance(value, str):
+        return value
+    
+    # Pattern to match ${VAR:-default} or ${VAR} or $VAR
+    pattern = r'\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)'
+    
+    def replace_match(match):
+        if match.group(1):  # ${...} format
+            var_expr = match.group(1)
+            if ':-' in var_expr:
+                # Handle ${VAR:-default} syntax
+                var_name, default_value = var_expr.split(':-', 1)
+                return os.environ.get(var_name.strip(), default_value)
+            else:
+                # Handle ${VAR} syntax
+                var_name = var_expr.strip()
+                return os.environ.get(var_name, '')
+        elif match.group(2):  # $VAR format
+            var_name = match.group(2)
+            return os.environ.get(var_name, '')
+        return match.group(0)
+    
+    return re.sub(pattern, replace_match, value)
+
+
+def _process_config_recursively(config_data):
+    """Recursively process configuration data to substitute environment variables."""
+    if isinstance(config_data, dict):
+        return {key: _process_config_recursively(value) for key, value in config_data.items()}
+    elif isinstance(config_data, list):
+        return [_process_config_recursively(item) for item in config_data]
+    elif isinstance(config_data, str):
+        return _substitute_env_vars(config_data)
+    else:
+        return config_data
 
 
 class ConfigLoader:
@@ -42,7 +85,11 @@ class ConfigLoader:
         
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
-                self._config = yaml.safe_load(f) or {}
+                raw_config = yaml.safe_load(f) or {}
+            
+            # Process environment variable substitution
+            self._config = _process_config_recursively(raw_config)
+            
         except yaml.YAMLError as e:
             raise ValueError(f"Invalid YAML configuration file: {e}")
         except Exception as e:
