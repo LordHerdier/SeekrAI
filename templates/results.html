@@ -229,12 +229,56 @@
         <!-- Search Status -->
         <div id="searchStatus" class="d-none">
             <div class="card shadow-sm">
-                <div class="card-body text-center">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Loading...</span>
+                <div class="card-body">
+                    <!-- Phase indicator -->
+                    <div class="text-center mb-3">
+                        <h6 id="currentPhase" class="mb-2">Initializing job search...</h6>
+                        <div class="spinner-border text-primary" role="status" id="searchSpinner">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
                     </div>
-                    <p class="mt-3 mb-0">Searching for jobs...</p>
-                    <small class="text-muted">This may take a few moments</small>
+                    
+                    <!-- Overall progress bar -->
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between small text-muted mb-1">
+                            <span id="progressLabel">Preparing search...</span>
+                            <span id="progressPercent">0%</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 id="overallProgress" 
+                                 role="progressbar" 
+                                 style="width: 0%" 
+                                 aria-valuenow="0" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Analysis progress (hidden initially) -->
+                    <div id="analysisProgress" class="d-none">
+                        <div class="d-flex justify-content-between small text-muted mb-1">
+                            <span id="analysisLabel">Analyzing jobs...</span>
+                            <span id="analysisPercent">0%</span>
+                        </div>
+                        <div class="progress mb-2" style="height: 6px;">
+                            <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" 
+                                 id="analysisBatchProgress" 
+                                 role="progressbar" 
+                                 style="width: 0%" 
+                                 aria-valuenow="0" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100">
+                            </div>
+                        </div>
+                        <small class="text-muted" id="analysisDetails">Preparing analysis...</small>
+                    </div>
+                    
+                    <!-- Status details -->
+                    <div class="text-center">
+                        <small class="text-muted" id="statusDetails">This may take a few moments</small>
+                    </div>
                 </div>
             </div>
         </div>
@@ -252,6 +296,11 @@
 // Get resume data from the page
 const resumeData = JSON.parse(document.getElementById('resumeData').textContent);
 
+// Progress tracking variables
+let searchJobId = null;
+let progressInterval = null;
+let lastProgress = { phase: 'preparing', percent: 0 };
+
 document.getElementById('jobSearchForm').addEventListener('submit', function(e) {
     e.preventDefault();
     
@@ -266,6 +315,9 @@ document.getElementById('jobSearchForm').addEventListener('submit', function(e) 
     resultsDiv.classList.add('d-none');
     statusDiv.classList.remove('d-none');
     
+    // Reset progress indicators
+    resetProgressIndicators();
+    
     // Prepare search data
     const searchData = {
         search_terms: resumeData.search_terms,
@@ -276,59 +328,217 @@ document.getElementById('jobSearchForm').addEventListener('submit', function(e) 
         keywords: resumeData.keywords  // Add keywords for job analysis
     };
     
-    // Make AJAX request
-    fetch('/search_jobs', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(searchData)
-    })
-    .then(response => {
-        // Log response details for debugging
-        console.log('Response status:', response.status);
-        console.log('Response headers:', response.headers);
+    // Start the job search
+    startJobSearch(searchData)
+        .then(() => {
+            // Reset button state
+            searchBtn.innerHTML = originalBtnText;
+            searchBtn.disabled = false;
+        })
+        .catch(() => {
+            // Reset button state on error
+            searchBtn.innerHTML = originalBtnText;
+            searchBtn.disabled = false;
+        });
+});
+
+async function startJobSearch(searchData) {
+    try {
+        updateProgress('initializing', 0, 'Starting job search...');
+        
+        // Make AJAX request
+        const response = await fetch('/search_jobs', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(searchData)
+        });
         
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
-        // Get response text first to debug parsing issues
-        return response.text();
-    })
-    .then(responseText => {
-        console.log('Response text length:', responseText.length);
-        console.log('Response text preview:', responseText.substring(0, 200));
-        
-        // Try to parse JSON manually with better error handling
-        let data;
-        try {
-            data = JSON.parse(responseText);
-        } catch (parseError) {
-            console.error('JSON parse error:', parseError);
-            console.error('Response text around error position:', responseText.substring(Math.max(0, parseError.column - 50), parseError.column + 50));
-            throw new Error('Server returned invalid JSON response');
-        }
-        
-        statusDiv.classList.add('d-none');
+        const responseText = await response.text();
+        const data = JSON.parse(responseText);
         
         if (data.success) {
-            displayJobResults(data);
+            // Check if this is a progress-enabled response (has job_id)
+            if (data.job_id) {
+                // Progress mode - keep modal visible and start polling
+                searchJobId = data.job_id;
+                updateProgress('scraping', 5, 'Job search started...');
+                startProgressPolling();
+            } else {
+                // Immediate results mode - hide modal and show results
+                document.getElementById('searchStatus').classList.add('d-none');
+                displayJobResults(data);
+            }
         } else {
+            // Error case - hide modal and show error
+            document.getElementById('searchStatus').classList.add('d-none');
             alert('Error searching for jobs: ' + (data.error || 'Unknown error'));
         }
-    })
-    .catch(error => {
+        
+    } catch (error) {
         console.error('Error:', error);
-        statusDiv.classList.add('d-none');
+        document.getElementById('searchStatus').classList.add('d-none');
         alert('Error searching for jobs. Please try again. Details: ' + error.message);
-    })
-    .finally(() => {
-        // Reset button state
-        searchBtn.innerHTML = originalBtnText;
-        searchBtn.disabled = false;
-    });
-});
+    }
+}
+
+function resetProgressIndicators() {
+    // Reset main progress
+    updateProgress('preparing', 0, 'Preparing search...');
+    
+    // Hide and reset analysis progress
+    const analysisDiv = document.getElementById('analysisProgress');
+    analysisDiv.classList.add('d-none');
+    
+    const analysisBatchProgress = document.getElementById('analysisBatchProgress');
+    analysisBatchProgress.style.width = '0%';
+    analysisBatchProgress.setAttribute('aria-valuenow', '0');
+    
+    document.getElementById('analysisPercent').textContent = '0%';
+    document.getElementById('analysisLabel').textContent = 'Analyzing jobs...';
+    document.getElementById('analysisDetails').textContent = 'Preparing analysis...';
+}
+
+function updateProgress(phase, percent, label, details = null) {
+    // Update phase indicator
+    const phaseElement = document.getElementById('currentPhase');
+    const progressLabel = document.getElementById('progressLabel');
+    const progressPercent = document.getElementById('progressPercent');
+    const overallProgress = document.getElementById('overallProgress');
+    const statusDetails = document.getElementById('statusDetails');
+    
+    // Phase-specific updates
+    switch(phase) {
+        case 'initializing':
+        case 'preparing':
+            phaseElement.textContent = 'Initializing job search...';
+            progressLabel.textContent = label || 'Preparing search...';
+            break;
+        case 'scraping':
+            phaseElement.textContent = 'Scraping job listings...';
+            progressLabel.textContent = label || 'Finding jobs...';
+            break;
+        case 'analyzing':
+            phaseElement.textContent = 'Analyzing job matches...';
+            progressLabel.textContent = label || 'Analyzing jobs...';
+            // Show analysis progress section
+            document.getElementById('analysisProgress').classList.remove('d-none');
+            break;
+        case 'complete':
+            phaseElement.textContent = 'Search completed!';
+            progressLabel.textContent = 'Finalizing results...';
+            break;
+    }
+    
+    // Update progress bar
+    const clampedPercent = Math.max(0, Math.min(100, percent));
+    overallProgress.style.width = clampedPercent + '%';
+    overallProgress.setAttribute('aria-valuenow', clampedPercent);
+    progressPercent.textContent = Math.round(clampedPercent) + '%';
+    
+    // Update details if provided
+    if (details) {
+        statusDetails.textContent = details;
+    }
+    
+    lastProgress = { phase, percent: clampedPercent };
+}
+
+function updateAnalysisProgress(batchesCompleted, totalBatches, currentBatch = null) {
+    if (totalBatches <= 0) return;
+    
+    const percent = (batchesCompleted / totalBatches) * 100;
+    const analysisProgress = document.getElementById('analysisBatchProgress');
+    const analysisPercent = document.getElementById('analysisPercent');
+    const analysisLabel = document.getElementById('analysisLabel');
+    const analysisDetails = document.getElementById('analysisDetails');
+    
+    // Update analysis progress bar
+    analysisProgress.style.width = percent + '%';
+    analysisProgress.setAttribute('aria-valuenow', percent);
+    analysisPercent.textContent = Math.round(percent) + '%';
+    
+    // Update labels
+    analysisLabel.textContent = `Analyzing batch ${batchesCompleted}/${totalBatches}`;
+    
+    if (currentBatch) {
+        analysisDetails.textContent = `Processing ${currentBatch.jobs_in_batch} jobs in current batch`;
+    } else {
+        analysisDetails.textContent = `${batchesCompleted} of ${totalBatches} batches completed`;
+    }
+}
+
+function startProgressPolling() {
+    if (progressInterval) {
+        clearInterval(progressInterval);
+    }
+    
+    progressInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/job_progress/${searchJobId}`);
+            const progressData = await response.json();
+            
+            // Reset error count on successful response
+            window.pollingErrorCount = 0;
+            
+            if (progressData.error) {
+                clearInterval(progressInterval);
+                document.getElementById('searchStatus').classList.add('d-none');
+                alert('Error during job search: ' + progressData.error);
+                return;
+            }
+            
+            // Update progress based on current phase
+            if (progressData.phase === 'scraping') {
+                updateProgress('scraping', progressData.percent, 
+                    `Found ${progressData.jobs_found || 0} jobs so far...`,
+                    `Searching ${progressData.current_site || 'job sites'}...`);
+            } else if (progressData.phase === 'analyzing') {
+                const analysisPercent = 50 + (progressData.percent * 0.5); // Analysis is second half
+                updateProgress('analyzing', analysisPercent, 
+                    'Analyzing job matches...',
+                    `Processing batches for AI analysis...`);
+                
+                if (progressData.analysis_progress) {
+                    updateAnalysisProgress(
+                        progressData.analysis_progress.completed_batches,
+                        progressData.analysis_progress.total_batches,
+                        progressData.analysis_progress.current_batch
+                    );
+                }
+            } else if (progressData.phase === 'complete') {
+                clearInterval(progressInterval);
+                updateProgress('complete', 100, 'Search completed!', 'Displaying results...');
+                
+                // Hide the progress modal and show results after a brief delay
+                setTimeout(() => {
+                    document.getElementById('searchStatus').classList.add('d-none');
+                    displayJobResults(progressData.results);
+                }, 1000);
+            }
+            
+        } catch (error) {
+            console.error('Progress polling error:', error);
+            // Continue polling unless it's a critical error
+            // Only stop polling after several consecutive failures
+            if (!window.pollingErrorCount) {
+                window.pollingErrorCount = 0;
+            }
+            window.pollingErrorCount++;
+            
+            if (window.pollingErrorCount >= 5) {
+                clearInterval(progressInterval);
+                document.getElementById('searchStatus').classList.add('d-none');
+                alert('Lost connection to job search. Please refresh the page and try again.');
+            }
+        }
+    }, 1000); // Poll every second
+}
 
 function displayJobResults(data) {
     const resultsDiv = document.getElementById('jobResults');
