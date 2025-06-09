@@ -1,0 +1,109 @@
+# SeekrAI Configuration File
+# =====================================
+
+# Application Settings
+app:
+  secret_key: "dev-secret-key-change-in-production"  # Override with SECRET_KEY env var
+  debug: true
+  host: "0.0.0.0"
+  port: 5000
+  
+# File Management
+files:
+  upload_folder: "uploads"
+  job_results_folder: "job_results"
+  cache_folder: ".cache"
+  logs_folder: "logs"
+  max_file_size_mb: 16
+  allowed_extensions:
+    - "txt"
+    - "pdf"
+    - "docx"
+    - "doc"
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  max_file_size_mb: 10
+  backup_count: 5
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s"
+
+# OpenAI API Settings
+openai:
+  model: "gpt-3.5-turbo"
+  temperature: 0.3
+  max_retries: 3
+  timeout_seconds: 30
+
+# Cache Settings
+cache:
+  directory: ".cache"
+  expiration_days: 7
+  max_size_mb: 100
+  cleanup_on_startup: false
+
+# Job Search Settings
+job_search:
+  default_sites:
+    - "indeed"
+    - "linkedin"
+  default_results: 10
+  max_results: 100
+  hours_old: 72
+  default_country: "USA"
+  description_max_length: 500
+  default_location: "Remote"
+
+# Job Analysis and Ranking (NEW)
+# WARNING: This feature uses additional OpenAI API calls and will incur extra costs!
+# Estimated cost: ~$0.002-0.005 per job analyzed (depending on model and job description length)
+# For 20 jobs analyzed: ~$0.04-0.10 per search. To enable: Set 'enabled: true' below
+job_analysis:
+  enabled: true  # Set to true to enable job analysis and ranking
+  analyze_salary: true  # Extract salary information from job descriptions
+  rank_by_similarity: true  # Rank jobs by similarity to resume
+  max_jobs_to_analyze: 20  # Limit to control API costs
+  salary_extraction_confidence_threshold: 0.7  # Confidence threshold for salary extraction
+  similarity_ranking_model: "gpt-3.5-turbo"  # Model for job similarity ranking
+  batch_size: 5  # Number of jobs to process in each API call (cost optimization)
+  cache_analysis_results: true  # Cache analysis results to avoid re-processing
+  
+# Resume Processing
+resume_processing:
+  pii_removal:
+    enabled: true
+    preserve_professional_urls: true
+    professional_domains:
+      - "github.com"
+      - "linkedin.com"
+      - "stackoverflow.com"
+      - "gitlab.com"
+      - "bitbucket.org"
+  
+# File Cleanup Settings
+cleanup:
+  default_days_old: 7
+  max_days_old: 365
+  auto_cleanup_on_startup: false
+
+# UI Settings
+ui:
+  auto_dismiss_alerts_ms: 5000
+  loading_button_timeout_ms: 10000
+  max_file_size_display_mb: 16
+  job_results_per_page: 20
+  animation_duration_ms: 300
+  
+# Development Settings
+development:
+  show_debug_info: false
+  enable_test_routes: false
+  mock_api_calls: false
+  
+# Security Settings
+security:
+  enable_csrf_protection: true
+  secure_file_uploads: true
+  sanitize_filenames: true
+  max_upload_attempts: 10
+  rate_limit_per_minute: 60 

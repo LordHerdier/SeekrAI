@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Resume - SeekrAI{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <!-- Hero Section -->
+        <div class="text-center mb-5">
+            <div class="display-4 mb-3">
+                <i class="fas fa-robot text-primary"></i>
+            </div>
+            <h1 class="display-6 mb-3">AI-Powered Job Search</h1>
+            <p class="lead text-muted">
+                Upload your resume and let AI find the perfect job opportunities for you
+            </p>
+        </div>
+
+        <!-- Upload Form -->
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-upload me-2"></i>Upload Your Resume
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="uploadForm" action="{{ url_for('upload_resume') }}" method="post" enctype="multipart/form-data">
+                    <!-- File Upload -->
+                    <div class="mb-4">
+                        <label for="resume" class="form-label">
+                            <i class="fas fa-file-alt me-1"></i>Resume File
+                        </label>
+                        <input type="file" class="form-control" id="resume" name="resume" accept=".txt,.pdf,.docx,.doc" required>
+                        <div class="form-text">
+                            Supported formats: PDF, Word (.docx), Text (.txt) - Max size: 16MB
+                        </div>
+                    </div>
+
+                    <!-- Desired Position -->
+                    <div class="mb-4">
+                        <label for="desired_position" class="form-label">
+                            <i class="fas fa-briefcase me-1"></i>Desired Position (Optional)
+                        </label>
+                        <input type="text" class="form-control" id="desired_position" name="desired_position" 
+                               placeholder="e.g., Data Scientist, Senior Backend Engineer, Product Manager">
+                        <div class="form-text">
+                            Specify a target role to focus your job search (overrides resume analysis)
+                        </div>
+                    </div>
+
+                    <!-- Target Location -->
+                    <div class="mb-4">
+                        <label for="target_location" class="form-label">
+                            <i class="fas fa-map-marker-alt me-1"></i>Target Location (Optional)
+                        </label>
+                        <input type="text" class="form-control" id="target_location" name="target_location" 
+                               placeholder="e.g., New York, NY or Remote">
+                        <div class="form-text">
+                            Specify job location preference (overrides location from resume)
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+                            <i class="fas fa-magic me-2"></i>Analyze Resume & Generate Search Terms
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Features Section -->
+        <div class="row mt-5">
+            <div class="col-md-4 text-center mb-4">
+                <div class="card h-100 border-0">
+                    <div class="card-body">
+                        <div class="display-6 text-primary mb-3">
+                            <i class="fas fa-shield-alt"></i>
+                        </div>
+                        <h5>Privacy Protected</h5>
+                        <p class="text-muted">Your personal information is automatically removed before AI processing</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 text-center mb-4">
+                <div class="card h-100 border-0">
+                    <div class="card-body">
+                        <div class="display-6 text-primary mb-3">
+                            <i class="fas fa-tachometer-alt"></i>
+                        </div>
+                        <h5>Smart Caching</h5>
+                        <p class="text-muted">Intelligent caching reduces processing time and API costs</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 text-center mb-4">
+                <div class="card h-100 border-0">
+                    <div class="card-body">
+                        <div class="display-6 text-primary mb-3">
+                            <i class="fas fa-search-plus"></i>
+                        </div>
+                        <h5>Multi-Platform Search</h5>
+                        <p class="text-muted">Search across Indeed, LinkedIn, and other major job boards</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Process Overview -->
+        <div class="card mt-5 bg-light">
+            <div class="card-body">
+                <h5 class="card-title text-center mb-4">
+                    <i class="fas fa-cogs me-2"></i>How It Works
+                </h5>
+                <div class="row text-center">
+                    <div class="col-md-3 mb-3">
+                        <div class="display-6 text-primary mb-2">
+                            <i class="fas fa-upload"></i>
+                        </div>
+                        <h6>1. Upload</h6>
+                        <small class="text-muted">Upload your resume securely</small>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="display-6 text-primary mb-2">
+                            <i class="fas fa-robot"></i>
+                        </div>
+                        <h6>2. AI Analysis</h6>
+                        <small class="text-muted">Extract skills and generate search terms</small>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="display-6 text-primary mb-2">
+                            <i class="fas fa-search"></i>
+                        </div>
+                        <h6>3. Job Search</h6>
+                        <small class="text-muted">Find matching opportunities</small>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <div class="display-6 text-primary mb-2">
+                            <i class="fas fa-download"></i>
+                        </div>
+                        <h6>4. Download</h6>
+                        <small class="text-muted">Get results in CSV format</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Add loading state to form submission
+document.getElementById('uploadForm').addEventListener('submit', function(e) {
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Processing...';
+    submitBtn.disabled = true;
+});
+
+// File validation
+document.getElementById('resume').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (file) {
+        const allowedTypes = ['text/plain', 'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword'];
+        if (!allowedTypes.includes(file.type)) {
+            alert('Please select a valid file type (PDF, Word, or Text)');
+            e.target.value = '';
+        }
+        if (file.size > 16 * 1024 * 1024) {
+            alert('File size must be less than 16MB');
+            e.target.value = '';
+        }
+    }
+});
+</script>
+{% endblock %} 

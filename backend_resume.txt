@@ -1,0 +1,67 @@
+**Michael Smith**  
+📞 (555) 123-4567  •  ✉️ michael.smith@example.com  •  GitHub: github.com/michaelsmith  •  LinkedIn: linkedin.com/in/michaelsmith  
+
+---
+
+## Summary  
+A mid-level backend DevOps engineer with, like, 4+ years of wrestling cloud infra and pipelines into submission. Obsessed with automating the heck out of everything so I can drink more coffee and debug less. Secretly convinced servers have feelings—mostly betrayed ones—but I keep ‘em happy (most of the time).
+
+---
+
+## Core Skills  
+- **Cloud & Infra**: AWS (EC2, RDS, S3), GCP (GKE, Cloud Run), Azure (AKS)  
+- **Containerization & Orchestration**: Docker, Kubernetes, Helm  
+- **IaC & Config Mgmt**: Terraform, Ansible, CloudFormation  
+- **CI/CD**: Jenkins, GitLab CI/CD, GitHub Actions  
+- **Scripting & Automation**: Python, Bash (with copious comments), Go (for fun)  
+- **Monitoring & Logging**: Prometheus, Grafana, ELK Stack  
+- **Version Control**: Git (branching strategies, merge wars survivor)  
+- **Networking & Security**: VPC design, IAM policies, SSL/TLS, Vault  
+
+---
+
+## Professional Experience  
+
+### **Techify Inc.** — Backend DevOps Engineer  
+*May 2022 – Present*  
+- Built and maintained a Kubernetes-based platform hosting microservices, increasing deployment speed by ~60% (yep, faster than my morning commute).  
+- Wrote Terraform modules to spin up multi-region AWS infra, reducing manual config hell and costing the company 15% less on monthly cloud spend.  
+- Designed GitLab CI pipelines that lint, test, build, and deploy services automatically—so I could finally take that yoga break.  
+- Implemented Prometheus + Grafana dashboards to monitor service health; alerted on CPU spikes before they became caffeine-stained crises.  
+- Collaborated with backend teams to containerize legacy .NET apps, cutting deploy times from hours to minutes.  
+
+### **Acme Corp.** — Junior DevOps Engineer  
+*June 2019 – April 2022*  
+- Automated server provisioning using Ansible, slaying repetitive SSH sessions like a righteous digital knight.  
+- Managed Jenkins pipelines for Java and Node.js services; debugged 100+ flaky tests that “just worked on my machine.”  
+- Set up ELK stack for centralized logging; saved devs from sifting through logs like detectives at a crime scene.  
+- Assisted in migrating on-prem VMs to AWS, dodging countless “it works on prod” memes in the process.  
+
+---
+
+## Notable Projects  
+- **Infra-as-Code for E-Commerce Platform**  
+  - Crafted Terraform configurations for VPCs, load balancers, RDS clusters; delivered immutable infra in under 2 weeks.  
+- **Automated Blue/Green Deployment**  
+  - Devised a Jenkins-driven blue/green strategy with feature flags, nailing zero-downtime releases (and bragging rights).  
+- **Chaos Engineering Playground**  
+  - Introduced chaos experiments with litmus probes; broke stuff on purpose so it wouldn’t break accidentally.  
+
+---
+
+## Education  
+**B.S. in Computer Science**  
+State University, 2015 – 2019  
+
+---
+
+## Certifications  
+- AWS Certified DevOps Engineer – Professional  
+- Certified Kubernetes Administrator (CKA)  
+- HashiCorp Certified: Terraform Associate  
+
+---
+
+## Tools & Interests  
+- **Tools**: Packer, Vault, Helmfile, Pulumi, OpenShift  
+- **Interests**: tinkering with home lab gear, playing (and losing) at chess, philosophizing about whether servers dream of electric sheep  

@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}Cache Management - SeekrAI{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-database me-2"></i>Cache Management</h2>
+            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Back to Home
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <!-- Cache Information -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-info text-white">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-info-circle me-2"></i>Cache Information
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if cache_info %}
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <div class="stat-item">
+                                <h3 class="text-primary">{{ cache_info.cache_files_count }}</h3>
+                                <p class="text-muted mb-0">Cached Files</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="stat-item">
+                                <h3 class="text-success">{{ cache_info.total_size_mb }} MB</h3>
+                                <p class="text-muted mb-0">Total Cache Size</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-light">
+                        <h6><i class="fas fa-folder-open me-1"></i>Cache Directory</h6>
+                        <code>{{ cache_info.cache_directory }}</code>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <h6><i class="fas fa-clock me-1"></i>Cache Expiration</h6>
+                        <p class="mb-0">Cached responses expire after 7 days to ensure fresh data while maintaining performance benefits.</p>
+                    </div>
+                {% else %}
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-1"></i>
+                        Unable to retrieve cache information.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Cache Files List -->
+        {% if cache_info and cache_info.cache_files %}
+        <div class="card shadow-sm">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-list me-2"></i>Cached Files
+                </h5>
+            </div>
+            <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Cache Key</th>
+                                <th>Created</th>
+                                <th>Size</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for file in cache_info.cache_files %}
+                            <tr>
+                                <td>
+                                    <code class="text-primary">{{ file.key }}</code>
+                                </td>
+                                <td>
+                                    <small class="text-muted">{{ file.created }}</small>
+                                </td>
+                                <td>
+                                    <span class="badge bg-light text-dark">{{ file.size_kb }} KB</span>
+                                </td>
+                                <td>
+                                    {% if file.is_expired %}
+                                        <span class="badge bg-warning">Expired</span>
+                                    {% else %}
+                                        <span class="badge bg-success">Valid</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="col-md-4">
+        <!-- Cache Actions -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-tools me-2"></i>Cache Actions
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <form method="POST" action="{{ url_for('clear_cache') }}" onsubmit="return confirm('Are you sure you want to clear all cached data? This action cannot be undone.')">
+                        <button type="submit" class="btn btn-danger btn-lg w-100">
+                            <i class="fas fa-trash me-2"></i>Clear All Cache
+                        </button>
+                    </form>
+                </div>
+                
+                <div class="alert alert-danger mt-3">
+                    <h6><i class="fas fa-exclamation-triangle me-1"></i>Warning</h6>
+                    <small>Clearing the cache will remove all stored API responses. This will require fresh API calls for future resume processing, which may increase processing time and API costs.</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cache Benefits -->
+        <div class="card shadow-sm">
+            <div class="card-header bg-success text-white">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-thumbs-up me-2"></i>Cache Benefits
+                </h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled">
+                    <li class="mb-2">
+                        <i class="fas fa-bolt text-warning me-2"></i>
+                        <strong>10-50x faster</strong> processing for repeated requests
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-dollar-sign text-success me-2"></i>
+                        <strong>Reduced API costs</strong> by avoiding duplicate calls
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-sync text-info me-2"></i>
+                        <strong>Consistent results</strong> for identical resume content
+                    </li>
+                    <li class="mb-2">
+                        <i class="fas fa-clock text-primary me-2"></i>
+                        <strong>Development efficiency</strong> during testing
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block head %}
+<style>
+.stat-item {
+    text-align: center;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    background-color: #f8f9fa;
+}
+
+.stat-item h3 {
+    font-size: 2rem;
+    font-weight: bold;
+    margin-bottom: 0.25rem;
+}
+</style>
+{% endblock %} 
