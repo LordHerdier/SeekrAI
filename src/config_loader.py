@@ -48,6 +48,65 @@ class ConfigLoader:
         except Exception as e:
             raise RuntimeError(f"Failed to load configuration: {e}")
     
+    def save_config(self) -> None:
+        """Save current configuration to YAML file."""
+        try:
+            # Create backup of current config
+            backup_file = self.config_file.with_suffix('.yaml.backup')
+            if self.config_file.exists():
+                with open(self.config_file, 'r', encoding='utf-8') as src:
+                    with open(backup_file, 'w', encoding='utf-8') as dst:
+                        dst.write(src.read())
+            
+            # Save current configuration
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                yaml.dump(self._config, f, default_flow_style=False, indent=2, sort_keys=False)
+                
+            logging.info(f"Configuration saved to {self.config_file}")
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to save configuration: {e}")
+    
+    def set(self, key_path: str, value: Any) -> None:
+        """
+        Set configuration value using dot-separated path.
+        
+        Args:
+            key_path: Dot-separated path to configuration value (e.g., 'app.debug')
+            value: Value to set
+        """
+        keys = key_path.split('.')
+        current = self._config
+        
+        # Navigate to the parent of the final key
+        for key in keys[:-1]:
+            if key not in current:
+                current[key] = {}
+            elif not isinstance(current[key], dict):
+                current[key] = {}
+            current = current[key]
+        
+        # Set the final value
+        current[keys[-1]] = value
+    
+    def update_multiple(self, updates: Dict[str, Any]) -> None:
+        """
+        Update multiple configuration values at once.
+        
+        Args:
+            updates: Dictionary mapping key paths to new values
+        """
+        for key_path, value in updates.items():
+            self.set(key_path, value)
+    
+    def get_all_config(self) -> Dict:
+        """Get the complete configuration dictionary."""
+        return self._config.copy()
+    
+    def get_config_sections(self) -> List[str]:
+        """Get list of top-level configuration sections."""
+        return list(self._config.keys())
+    
     def get(self, key_path: str, default: Any = None, env_override: str = None) -> Any:
         """
         Get configuration value with optional environment variable override.

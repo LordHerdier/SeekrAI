@@ -8,6 +8,7 @@ from utils.directory_setup import ensure_directories
 from routes.upload_routes import upload_bp
 from routes.job_routes import job_bp
 from routes.file_routes import file_bp
+from routes.config_routes import config_bp
 
 # Load environment variables
 load_dotenv()
@@ -56,6 +57,7 @@ def create_app():
     app.register_blueprint(upload_bp)
     app.register_blueprint(job_bp)
     app.register_blueprint(file_bp)
+    app.register_blueprint(config_bp)
 
     # Error handlers
     @app.errorhandler(413)

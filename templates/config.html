@@ -1,0 +1,488 @@
+{% extends "base.html" %}
+
+{% block title %}Configuration - SeekrAI{% endblock %}
+
+{% block head %}
+<style>
+    .config-section {
+        background: #f8f9fa;
+        border-left: 4px solid #007bff;
+    }
+    
+    .config-item {
+        border: 1px solid #dee2e6;
+        transition: all 0.2s ease;
+    }
+    
+    .config-item:hover {
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .config-key {
+        font-family: 'Courier New', monospace;
+        font-weight: bold;
+        color: #495057;
+    }
+    
+    .config-value {
+        background-color: #fff;
+    }
+    
+    .section-header {
+        cursor: pointer;
+        user-select: none;
+    }
+    
+    .section-header:hover {
+        background-color: #e9ecef !important;
+    }
+    
+    .collapse-icon {
+        transition: transform 0.2s ease;
+    }
+    
+    .collapsed .collapse-icon {
+        transform: rotate(-90deg);
+    }
+    
+    .list-input {
+        font-family: 'Courier New', monospace;
+    }
+    
+    .save-button {
+        position: sticky;
+        top: 20px;
+        z-index: 1000;
+    }
+    
+    .changed-indicator {
+        color: #dc3545;
+        font-weight: bold;
+    }
+    
+    .config-help {
+        font-size: 0.875rem;
+        color: #6c757d;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-cog me-2"></i>Configuration Management</h2>
+            <div class="save-button">
+                <button type="button" class="btn btn-primary me-2" id="saveConfigBtn">
+                    <i class="fas fa-save me-1"></i>Save Changes
+                </button>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-outline-secondary" onclick="reloadConfig()">
+                        <i class="fas fa-undo me-1"></i>Reload
+                    </button>
+                    <button type="button" class="btn btn-outline-info" onclick="exportConfig()">
+                        <i class="fas fa-download me-1"></i>Export
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        {% if error %}
+        <div class="alert alert-danger">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            Error loading configuration: {{ error }}
+        </div>
+        {% endif %}
+
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>Configuration Management:</strong> Edit values below and click "Save Changes" to update the configuration file.
+            <strong>Note:</strong> Some changes may require a server restart to take effect.
+        </div>
+
+        <div id="changesIndicator" class="alert alert-warning d-none">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <span class="changed-indicator">You have unsaved changes!</span> Click "Save Changes" to apply them.
+        </div>
+
+        <form id="configForm">
+            {% for section in sections %}
+            <div class="card mb-3">
+                <div class="card-header config-section section-header" 
+                     data-bs-toggle="collapse" 
+                     data-bs-target="#section-{{ section }}"
+                     aria-expanded="true">
+                    <h5 class="mb-0 d-flex justify-content-between align-items-center">
+                        <span>
+                            <i class="fas fa-chevron-down collapse-icon me-2"></i>
+                            {{ section|title }} Configuration
+                        </span>
+                        <small class="text-muted">{{ config_data[section].keys()|length }} settings</small>
+                    </h5>
+                </div>
+                
+                <div class="collapse show" id="section-{{ section }}">
+                    <div class="card-body">
+                        {% set section_data = config_data[section] %}
+                        {% for key, value in section_data.items() %}
+                        <div class="config-item rounded p-3 mb-3">
+                            <div class="row align-items-center">
+                                <div class="col-md-4">
+                                    <label class="config-key mb-0">{{ section }}.{{ key }}</label>
+                                    <div class="config-help">
+                                        {{ get_config_help(section, key) }}
+                                    </div>
+                                </div>
+                                <div class="col-md-8">
+                                    {% if value is sameas true or value is sameas false %}
+                                        <select class="form-select config-value" 
+                                                name="{{ section }}.{{ key }}" 
+                                                data-original="{{ value|lower }}">
+                                            <option value="true" {% if value %}selected{% endif %}>True</option>
+                                            <option value="false" {% if not value %}selected{% endif %}>False</option>
+                                        </select>
+                                    {% elif value is iterable and value is not string %}
+                                        <input type="text" 
+                                               class="form-control config-value list-input" 
+                                               name="{{ section }}.{{ key }}"
+                                               value="{{ value|join(', ') }}"
+                                               data-original="{{ value|join(', ') }}"
+                                               placeholder="Comma-separated values">
+                                        <small class="form-text text-muted">Enter comma-separated values</small>
+                                    {% elif value is number %}
+                                        <input type="number" 
+                                               class="form-control config-value" 
+                                               name="{{ section }}.{{ key }}"
+                                               value="{{ value }}"
+                                               data-original="{{ value }}"
+                                               {% if value is float %}step="0.1"{% endif %}>
+                                    {% else %}
+                                        <input type="text" 
+                                               class="form-control config-value" 
+                                               name="{{ section }}.{{ key }}"
+                                               value="{{ value }}"
+                                               data-original="{{ value }}">
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </form>
+    </div>
+</div>
+
+<!-- Save Progress Modal -->
+<div class="modal fade" id="saveProgressModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Saving Configuration</h5>
+            </div>
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Saving...</span>
+                </div>
+                <p class="mt-3">Saving configuration changes...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let hasUnsavedChanges = false;
+
+// Track changes to form inputs
+document.addEventListener('DOMContentLoaded', function() {
+    const configInputs = document.querySelectorAll('.config-value');
+    const changesIndicator = document.getElementById('changesIndicator');
+    const saveBtn = document.getElementById('saveConfigBtn');
+    
+    configInputs.forEach(input => {
+        input.addEventListener('input', function() {
+            const originalValue = this.getAttribute('data-original');
+            const currentValue = this.value;
+            
+            if (originalValue !== currentValue) {
+                hasUnsavedChanges = true;
+                changesIndicator.classList.remove('d-none');
+                saveBtn.classList.add('btn-warning');
+                saveBtn.classList.remove('btn-primary');
+            } else {
+                checkForChanges();
+            }
+        });
+    });
+    
+    // Save configuration
+    saveBtn.addEventListener('click', saveConfiguration);
+    
+    // Handle section collapse/expand
+    document.querySelectorAll('.section-header').forEach(header => {
+        header.addEventListener('click', function() {
+            const icon = this.querySelector('.collapse-icon');
+            setTimeout(() => {
+                const target = document.querySelector(this.getAttribute('data-bs-target'));
+                if (target.classList.contains('show')) {
+                    icon.style.transform = 'rotate(0deg)';
+                } else {
+                    icon.style.transform = 'rotate(-90deg)';
+                }
+            }, 150);
+        });
+    });
+    
+    // Warn about unsaved changes
+    window.addEventListener('beforeunload', function(e) {
+        if (hasUnsavedChanges) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    });
+});
+
+function checkForChanges() {
+    const configInputs = document.querySelectorAll('.config-value');
+    const changesIndicator = document.getElementById('changesIndicator');
+    const saveBtn = document.getElementById('saveConfigBtn');
+    
+    let hasChanges = false;
+    configInputs.forEach(input => {
+        const originalValue = input.getAttribute('data-original');
+        const currentValue = input.value;
+        if (originalValue !== currentValue) {
+            hasChanges = true;
+        }
+    });
+    
+    hasUnsavedChanges = hasChanges;
+    
+    if (hasChanges) {
+        changesIndicator.classList.remove('d-none');
+        saveBtn.classList.add('btn-warning');
+        saveBtn.classList.remove('btn-primary');
+    } else {
+        changesIndicator.classList.add('d-none');
+        saveBtn.classList.add('btn-primary');
+        saveBtn.classList.remove('btn-warning');
+    }
+}
+
+function saveConfiguration() {
+    const modal = new bootstrap.Modal(document.getElementById('saveProgressModal'));
+    modal.show();
+    
+    const formData = new FormData(document.getElementById('configForm'));
+    const updates = {};
+    
+    for (let [key, value] of formData.entries()) {
+        updates[key] = value;
+    }
+    
+    fetch('/config/update', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ updates: updates })
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Force complete modal cleanup
+        closeModalCompletely(modal);
+        
+        if (data.success) {
+            // Update original values
+            document.querySelectorAll('.config-value').forEach(input => {
+                input.setAttribute('data-original', input.value);
+            });
+            
+            hasUnsavedChanges = false;
+            checkForChanges();
+            
+            // Show success message
+            showAlert('success', data.message);
+        } else {
+            showAlert('danger', 'Error saving configuration: ' + data.error);
+        }
+    })
+    .catch(error => {
+        // Force complete modal cleanup
+        closeModalCompletely(modal);
+        
+        showAlert('danger', 'Network error: ' + error.message);
+    });
+}
+
+function closeModalCompletely(modal) {
+    // Hide and dispose of the modal
+    modal.hide();
+    
+    setTimeout(() => {
+        // Dispose of the modal instance
+        modal.dispose();
+        
+        // Force hide the modal element
+        const modalElement = document.getElementById('saveProgressModal');
+        modalElement.style.display = 'none';
+        modalElement.classList.remove('show');
+        modalElement.setAttribute('aria-hidden', 'true');
+        modalElement.removeAttribute('aria-modal');
+        modalElement.removeAttribute('role');
+        
+        // Remove any lingering modal backdrops
+        const backdrops = document.querySelectorAll('.modal-backdrop');
+        backdrops.forEach(backdrop => backdrop.remove());
+        
+        // Ensure body doesn't have modal-open class
+        document.body.classList.remove('modal-open');
+        document.body.style.removeProperty('overflow');
+        document.body.style.removeProperty('padding-right');
+    }, 150);
+}
+
+function reloadConfig() {
+    if (hasUnsavedChanges) {
+        if (!confirm('You have unsaved changes. Are you sure you want to reload and lose your changes?')) {
+            return;
+        }
+    }
+    
+    // Show loading state
+    const reloadBtn = event.target;
+    const originalText = reloadBtn.innerHTML;
+    reloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Reloading...';
+    reloadBtn.disabled = true;
+    
+    fetch('/config/reset', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => {
+        if (response.ok) {
+            showAlert('success', 'Configuration reloaded successfully!');
+            // Reload the page to show updated values
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        } else {
+            throw new Error('Failed to reload configuration');
+        }
+    })
+    .catch(error => {
+        showAlert('danger', 'Error reloading configuration: ' + error.message);
+        // Restore button state
+        reloadBtn.innerHTML = originalText;
+        reloadBtn.disabled = false;
+    });
+}
+
+function exportConfig() {
+    fetch('/config/export')
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const blob = new Blob([JSON.stringify(data.config, null, 2)], 
+                                 { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'seekrai-config.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showAlert('success', 'Configuration exported successfully!');
+        } else {
+            showAlert('danger', 'Error exporting configuration: ' + data.error);
+        }
+    })
+    .catch(error => {
+        showAlert('danger', 'Network error: ' + error.message);
+    });
+}
+
+function showAlert(type, message) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+    alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; max-width: 400px;';
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.body.appendChild(alertDiv);
+    
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.parentNode.removeChild(alertDiv);
+        }
+    }, 5000);
+}
+</script>
+{% endblock %}
+
+{% macro get_config_help(section, key) %}
+    {% set help_texts = {
+        'app': {
+            'secret_key': 'Flask secret key for session security',
+            'debug': 'Enable debug mode for development',
+            'host': 'Host address to bind the server',
+            'port': 'Port number for the server'
+        },
+        'files': {
+            'upload_folder': 'Directory for uploaded files',
+            'job_results_folder': 'Directory for job search results',
+            'cache_folder': 'Directory for cache files',
+            'logs_folder': 'Directory for log files',
+            'max_file_size_mb': 'Maximum upload file size in MB',
+            'allowed_extensions': 'Allowed file extensions for uploads'
+        },
+        'logging': {
+            'level': 'Logging level (DEBUG, INFO, WARNING, ERROR)',
+            'max_file_size_mb': 'Maximum log file size in MB',
+            'backup_count': 'Number of log backup files to keep',
+            'format': 'Log message format string'
+        },
+        'openai': {
+            'model': 'OpenAI model to use for processing',
+            'temperature': 'Model temperature (0.0-1.0)',
+            'max_retries': 'Maximum API call retries',
+            'timeout_seconds': 'API call timeout in seconds'
+        },
+        'cache': {
+            'directory': 'Cache directory path',
+            'expiration_days': 'Cache expiration time in days',
+            'max_size_mb': 'Maximum cache size in MB',
+            'cleanup_on_startup': 'Clean cache on application startup'
+        },
+        'job_search': {
+            'default_sites': 'Default job search sites',
+            'default_results': 'Default number of results to return',
+            'max_results': 'Maximum number of results allowed',
+            'hours_old': 'Filter jobs older than X hours',
+            'default_country': 'Default country for job search',
+            'description_max_length': 'Maximum job description length',
+            'default_location': 'Default location for job search'
+        },
+        'job_analysis': {
+            'enabled': 'Enable AI-powered job analysis (uses additional API calls)',
+            'analyze_salary': 'Extract salary information from job descriptions',
+            'rank_by_similarity': 'Rank jobs by similarity to resume',
+            'max_jobs_to_analyze': 'Maximum jobs to analyze (controls API costs)',
+            'salary_extraction_confidence_threshold': 'Minimum confidence for salary extraction',
+            'similarity_ranking_model': 'OpenAI model for similarity ranking',
+            'batch_size': 'Jobs processed per API call',
+            'cache_analysis_results': 'Cache analysis results to save costs'
+        }
+    } %}
+    {{ help_texts.get(section, {}).get(key, '') }}
+{% endmacro %} 
