@@ -142,13 +142,50 @@ def sanitize_job_for_json(job_dict):
     sanitized_job = {}
     for key, value in job_dict.items():
         if isinstance(value, str):
-            sanitized_job[key] = sanitize_string_for_json(value)
+            # Allow job descriptions to be longer than other fields
+            if key == 'description':
+                sanitized_job[key] = sanitize_description_for_json(value)
+            else:
+                sanitized_job[key] = sanitize_string_for_json(value)
         elif isinstance(value, list):
             # Handle list of strings
             sanitized_job[key] = [sanitize_string_for_json(item) if isinstance(item, str) else item for item in value]
         else:
             sanitized_job[key] = value
     return sanitized_job
+
+def sanitize_description_for_json(value):
+    """Sanitize job description specifically - allow longer text but still clean it"""
+    if not isinstance(value, str):
+        return value
+    
+    # First, normalize Unicode characters to ASCII where possible
+    try:
+        # Try to normalize unicode to ASCII equivalents
+        normalized = unicodedata.normalize('NFKD', value)
+        ascii_value = normalized.encode('ascii', 'ignore').decode('ascii')
+    except:
+        # If normalization fails, use original value
+        ascii_value = value
+    
+    # Replace problematic characters but preserve line breaks for descriptions
+    sanitized = (ascii_value.replace('\r\n', '\n')
+                           .replace('\r', '\n')
+                           .replace('\t', ' ')
+                           .replace('"', "'")
+                           .replace('\\', '/')
+                           .replace('\x00', '')  # Remove null bytes
+                           .strip())
+    
+    # Remove any remaining control characters except newlines
+    sanitized = ''.join(char for char in sanitized if ord(char) >= 32 or char in ['\n'])
+    
+    # Collapse multiple consecutive spaces but preserve line breaks
+    sanitized = re.sub(r'[ ]+', ' ', sanitized)  # Multiple spaces to single space
+    sanitized = re.sub(r'\n\s*\n\s*\n+', '\n\n', sanitized)  # Multiple line breaks to double
+    
+    # No length limit for descriptions - let the UI handle display
+    return sanitized.strip()
 
 @job_bp.route('/search_jobs', methods=['POST'])
 def search_jobs():
@@ -485,7 +522,8 @@ def generate_output_filename(filename, desired_position):
 def convert_jobs_to_response_format(jobs, config):
     """Convert jobs DataFrame to response format"""
     jobs_list = []
-    description_max_length = config.get('job_search.description_max_length', 500)
+    # Remove the truncation limit since we now have scrollable containers
+    # description_max_length = config.get('job_search.description_max_length', 500)
     
     for i, job in jobs.iterrows():
         # Safely handle description field that might be float/NaN
@@ -502,7 +540,7 @@ def convert_jobs_to_response_format(jobs, config):
             'location': job.get('location', 'N/A') if pd.notna(job.get('location', '')) else 'N/A',
             'site': job.get('site', 'N/A') if pd.notna(job.get('site', '')) else 'N/A',
             'job_url': job.get('job_url', '') if pd.notna(job.get('job_url', '')) else '',
-            'description': description[:description_max_length] + '...' if description else '',
+            'description': description,  # Keep full description for scrollable display
             'salary_min': job.get('salary_min', '') if pd.notna(job.get('salary_min', '')) else '',
             'salary_max': job.get('salary_max', '') if pd.notna(job.get('salary_max', '')) else '',
             'date_posted': str(job.get('date_posted', '')) if pd.notna(job.get('date_posted', '')) else ''

@@ -3,6 +3,52 @@
 {% block title %}Resume Analysis Results - SeekrAI{% endblock %}
 
 {% block content %}
+<style>
+/* Scrollable job description styling */
+.job-description-scroll {
+    max-height: 120px;
+    overflow-y: auto;
+    padding: 8px 12px;
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    white-space: pre-wrap; /* Preserve line breaks and spaces */
+    word-wrap: break-word; /* Break long words if needed */
+}
+
+.job-description-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+
+.job-description-scroll::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.job-description-scroll::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.job-description-scroll::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+/* Firefox scrollbar styling */
+.job-description-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #c1c1c1 #f1f1f1;
+}
+
+/* Improve readability */
+.job-description-container {
+    border-left: 3px solid #007bff;
+    padding-left: 8px;
+}
+</style>
+
 <div class="row">
     <div class="col-12">
         <!-- Header -->
@@ -661,7 +707,14 @@ function displayJobResults(data) {
                     ${salaryDisplay}
                     ${keyMatchesDisplay}
                     ${job.description ? 
-                        `<p class="card-text text-muted small">${job.description}</p>` : ''}
+                        `<div class="job-description-container mb-3">
+                            <small class="text-muted mb-1 d-block">
+                                <i class="fas fa-align-left me-1"></i>Job Description
+                            </small>
+                            <div class="job-description-scroll">
+                                <p class="card-text text-muted small mb-0">${job.description}</p>
+                            </div>
+                        </div>` : ''}
                     <div class="d-flex justify-content-between align-items-center mt-2">
                         ${job.job_url ? 
                             `<a href="${job.job_url}" target="_blank" class="btn btn-sm btn-outline-primary">
