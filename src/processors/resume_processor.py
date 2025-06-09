@@ -168,12 +168,23 @@ class ResumeProcessor:
             self.logger.info("Job analysis disabled in configuration")
             return jobs_data
         
+        # **FIX: Better coordination of job limits**
+        # If max_jobs is specified, use it; otherwise use config or analyze all
         if max_jobs is None:
-            max_jobs = self.config.get_max_jobs_to_analyze()
+            analysis_limit = self.config.get_max_jobs_to_analyze()
+            if analysis_limit <= 0:  # If config says 0 or negative, analyze all
+                analysis_limit = len(jobs_data)
+        else:
+            analysis_limit = max_jobs
+        
+        # **FIX: Don't analyze more jobs than we actually have**
+        analysis_limit = min(analysis_limit, len(jobs_data))
         
         # Limit the number of jobs to analyze
-        jobs_to_analyze = jobs_data[:max_jobs] if max_jobs > 0 else jobs_data
-        self.logger.info(f"Analyzing {len(jobs_to_analyze)} out of {len(jobs_data)} jobs")
+        jobs_to_analyze = jobs_data[:analysis_limit]
+        remaining_jobs = jobs_data[analysis_limit:]
+        
+        self.logger.info(f"Analyzing {len(jobs_to_analyze)} jobs, {len(remaining_jobs)} will get default analysis")
         
         # Process jobs in batches
         batch_size = self.config.get('job_analysis.batch_size', 5)
@@ -188,15 +199,22 @@ class ResumeProcessor:
             self.logger.info("Using sequential processing")
             analyzed_jobs = self._process_batches_sequential(jobs_to_analyze, batch_size, resume_keywords)
         
-        # Add remaining jobs that weren't analyzed
-        if max_jobs > 0 and len(jobs_data) > max_jobs:
-            remaining_jobs = jobs_data[max_jobs:]
-            analyzed_jobs.extend(self._create_default_analysis(remaining_jobs))
+        # Add remaining jobs that weren't analyzed with default analysis
+        if remaining_jobs:
+            self.logger.info(f"Adding {len(remaining_jobs)} unanalyzed jobs with default analysis")
+            default_analyzed_jobs = self._create_default_analysis(remaining_jobs)
+            for job in default_analyzed_jobs:
+                job['similarity_explanation'] = 'Not analyzed - beyond analysis limit'
+            analyzed_jobs.extend(default_analyzed_jobs)
         
         # Sort by similarity score if enabled
         if self.config.get_similarity_ranking_enabled():
             analyzed_jobs.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
             self.logger.info("Jobs sorted by similarity score")
+        
+        # **FIX: Ensure we return exactly the expected number of jobs**
+        if len(analyzed_jobs) != len(jobs_data):
+            self.logger.warning(f"Job count mismatch: input {len(jobs_data)}, output {len(analyzed_jobs)}")
         
         return analyzed_jobs
     

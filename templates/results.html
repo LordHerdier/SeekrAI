@@ -336,7 +336,15 @@ function displayJobResults(data) {
     const jobsList = document.getElementById('jobsList');
     const downloadBtn = document.getElementById('downloadBtn');
     
-    countSpan.textContent = `${data.count} jobs found`;
+    let countText = `${data.count} jobs found`;
+    if (data.search_params && data.search_params.results_wanted && data.count !== data.search_params.results_wanted) {
+        countText += ` (requested ${data.search_params.results_wanted})`;
+    }
+    if (data.search_params && data.search_params.initial_scraped_count && data.search_params.initial_scraped_count !== data.count) {
+        countText += ` - scraped ${data.search_params.initial_scraped_count}`;
+    }
+    
+    countSpan.textContent = countText;
     
     // Clear previous results
     jobsList.innerHTML = '';
@@ -472,8 +480,8 @@ function displayJobResults(data) {
     } else {
         jobsList.innerHTML = '<div class="alert alert-info">No jobs found. Try adjusting your search parameters.</div>';
     }
-    
+
     resultsDiv.classList.remove('d-none');
 }
 </script>
-{% endblock %} 
+{% endblock %}

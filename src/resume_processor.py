@@ -565,11 +565,22 @@ class ResumeProcessor:
             self.logger.info("Job analysis disabled in configuration")
             return jobs_data
         
-        # Limit number of jobs to analyze for cost control
-        analysis_limit = max_jobs or self.config.get_max_jobs_to_analyze()
-        jobs_to_analyze = jobs_data[:analysis_limit]
+        # **FIX: Better coordination of job limits**
+        # If max_jobs is specified, use it; otherwise use config or analyze all
+        if max_jobs is None:
+            analysis_limit = self.config.get_max_jobs_to_analyze()
+            if analysis_limit <= 0:  # If config says 0 or negative, analyze all
+                analysis_limit = len(jobs_data)
+        else:
+            analysis_limit = max_jobs
         
-        self.logger.info(f"Analyzing {len(jobs_to_analyze)} jobs (limited from {len(jobs_data)} for cost control)")
+        # **FIX: Don't analyze more jobs than we actually have**
+        analysis_limit = min(analysis_limit, len(jobs_data))
+        
+        jobs_to_analyze = jobs_data[:analysis_limit]
+        remaining_jobs = jobs_data[analysis_limit:]
+        
+        self.logger.info(f"Analyzing {len(jobs_to_analyze)} jobs, {len(remaining_jobs)} will get default analysis")
         
         analyzed_jobs = []
         batch_size = self.config.get_job_analysis_batch_size()
@@ -586,7 +597,6 @@ class ResumeProcessor:
             analyzed_jobs = self._process_batches_sequential(jobs_to_analyze, batch_size, resume_keywords)
         
         # Add unanalyzed jobs back to the list with default scores
-        remaining_jobs = jobs_data[analysis_limit:]
         if remaining_jobs:
             self.logger.info(f"Adding {len(remaining_jobs)} unanalyzed jobs with default scores")
             for job in remaining_jobs:
@@ -595,7 +605,10 @@ class ResumeProcessor:
                 job['salary_min_extracted'] = None
                 job['salary_max_extracted'] = None
                 job['salary_confidence'] = 0.0
-                analyzed_jobs.append(job)
+                job['key_matches'] = []
+                job['missing_requirements'] = []
+                job['similarity_explanation'] = 'Not analyzed - beyond analysis limit'
+            analyzed_jobs.extend(remaining_jobs)
         
         # Sort by similarity score (highest first) if similarity ranking is enabled
         if self.config.get_similarity_ranking_enabled():
@@ -608,6 +621,11 @@ class ResumeProcessor:
         
         elapsed_time = time.time() - start_time
         self.logger.info(f"Job analysis completed in {elapsed_time:.2f} seconds - {len(analyzed_jobs)} total jobs processed")
+        
+        # **FIX: Ensure we return exactly the expected number of jobs**
+        if len(analyzed_jobs) != len(jobs_data):
+            self.logger.warning(f"Job count mismatch: input {len(jobs_data)}, output {len(analyzed_jobs)}")
+        
         return analyzed_jobs
     
     def _process_batches_parallel(self, jobs_to_analyze: List[Dict], batch_size: int, resume_keywords: Dict) -> List[Dict]:

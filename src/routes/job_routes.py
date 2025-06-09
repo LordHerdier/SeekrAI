@@ -105,10 +105,22 @@ def search_jobs():
             country_indeed=config.get('job_search.default_country', 'USA')
         )
         
-        logging.info(f"Job search completed - Found {len(jobs)} jobs")
+        # **FIX: Ensure we don't return more jobs than requested**
+        initial_job_count = len(jobs)
+        if len(jobs) > results_wanted:
+            logging.info(f"Job scraper returned {len(jobs)} jobs, truncating to requested {results_wanted}")
+            jobs = jobs.head(results_wanted)
+        
+        logging.info(f"Job search completed - Found {initial_job_count} jobs, using {len(jobs)} jobs (requested: {results_wanted})")
+        
+        # **FIX: Validate that we have the expected number of jobs**
+        final_job_count = len(jobs)
+        if final_job_count != results_wanted:
+            logging.warning(f"Job count mismatch after truncation: requested {results_wanted}, have {final_job_count}")
         
         # Job Analysis Step (NEW) - Analyze and rank jobs if enabled
         jobs_analyzed = False
+        analysis_summary = None
         if config.get_job_analysis_enabled() and len(jobs) > 0:
             logging.info("Job analysis enabled - analyzing jobs for salary and similarity")
             
@@ -124,19 +136,50 @@ def search_jobs():
                     # Convert jobs DataFrame to list of dictionaries
                     jobs_list = jobs.to_dict('records')
                     
+                    # **FIX: Set analysis limit to match the actual job count we're returning**
+                    # This ensures all jobs get analyzed (or none do), eliminating partial analysis
+                    analysis_limit = len(jobs_list)  # Analyze all jobs we're returning
+                    max_configured_analysis = config.get_max_jobs_to_analyze()
+                    
+                    if max_configured_analysis > 0 and analysis_limit > max_configured_analysis:
+                        logging.info(f"Analysis limit ({max_configured_analysis}) is less than job count ({analysis_limit})")
+                        logging.info(f"Will analyze first {max_configured_analysis} jobs, others will get default analysis")
+                        analysis_limit = max_configured_analysis
+                    
+                    # **FIX: Additional validation to ensure configuration consistency**
+                    if analysis_limit != len(jobs_list):
+                        logging.warning(f"Analysis limit ({analysis_limit}) differs from job count ({len(jobs_list)})")
+                        logging.warning("This may result in some jobs not being analyzed")
+                    
+                    logging.info(f"Starting job analysis: {len(jobs_list)} jobs total, analyzing {analysis_limit}")
+                    
                     # Analyze and rank jobs
                     analyzed_jobs_list = processor.analyze_and_rank_jobs(
                         jobs_list, 
                         keywords, 
-                        max_jobs=config.get_max_jobs_to_analyze()
+                        max_jobs=analysis_limit
                     )
                     
+                    # **FIX: Validate job count after analysis**
+                    if len(analyzed_jobs_list) != len(jobs_list):
+                        logging.error(f"Job count changed during analysis: before={len(jobs_list)}, after={len(analyzed_jobs_list)}")
+                        # This should not happen, but if it does, we need to know
+                        
                     # Convert back to DataFrame
                     jobs = pd.DataFrame(analyzed_jobs_list)
                     jobs_analyzed = True
                     
                     analyzed_count = sum(1 for job in analyzed_jobs_list if job.get('analyzed', False))
-                    logging.info(f"Job analysis completed - {analyzed_count}/{len(jobs)} jobs analyzed")
+                    salary_extracted_count = sum(1 for job in analyzed_jobs_list 
+                                               if job.get('salary_min_extracted') or job.get('salary_max_extracted'))
+                    
+                    analysis_summary = {
+                        'analyzed_count': analyzed_count,
+                        'total_count': len(analyzed_jobs_list),
+                        'salary_extracted_count': salary_extracted_count
+                    }
+                    
+                    logging.info(f"Job analysis completed - {analyzed_count}/{len(jobs)} jobs analyzed, {salary_extracted_count} with salary data")
                     
             except Exception as e:
                 logging.error(f"Error during job analysis: {str(e)}", exc_info=True)
@@ -204,6 +247,13 @@ def search_jobs():
         
         logging.info(f"Returning {len(jobs_list)} jobs to client")
         
+        # **FIX: Final validation before returning response**
+        if len(jobs_list) != results_wanted:
+            logging.warning(f"Final job count validation: requested {results_wanted}, returning {len(jobs_list)}")
+            if len(jobs_list) > results_wanted:
+                logging.error(f"Still returning more jobs than requested! Truncating {len(jobs_list)} to {results_wanted}")
+                jobs_list = jobs_list[:results_wanted]
+        
         # Prepare response data
         response_data = {
             'success': True,
@@ -212,23 +262,20 @@ def search_jobs():
             'search_params': {
                 'search_term': search_term,
                 'location': location,
-                'results_wanted': results_wanted
+                'results_wanted': results_wanted,
+                'initial_scraped_count': initial_job_count,  # Add visibility into what happened
+                'final_returned_count': len(jobs_list)
             },
             'output_file': output_filename,
             'analysis_enabled': config.get_job_analysis_enabled(),
-            'jobs_analyzed': jobs_analyzed
+            'jobs_analyzed': jobs_analyzed,
+            'analysis_summary': analysis_summary
         }
         
-        # Add analysis summary if jobs were analyzed
-        if jobs_analyzed:
-            analyzed_count = sum(1 for job in jobs_list if job.get('analyzed', False))
-            salary_extracted_count = sum(1 for job in jobs_list 
-                                       if job.get('salary_min_extracted') or job.get('salary_max_extracted'))
-            response_data['analysis_summary'] = {
-                'analyzed_count': analyzed_count,
-                'total_count': len(jobs_list),
-                'salary_extracted_count': salary_extracted_count
-            }
+        # **FIX: Log comprehensive summary of what we're returning**
+        logging.info(f"Job search summary - Requested: {results_wanted}, Scraped: {initial_job_count}, Returned: {len(jobs_list)}")
+        if jobs_analyzed and analysis_summary:
+            logging.info(f"Analysis summary - Analyzed: {analysis_summary.get('analyzed_count', 0)}/{analysis_summary.get('total_count', 0)}, Salary extracted: {analysis_summary.get('salary_extracted_count', 0)}")
         
         # Try to serialize response and catch any JSON errors
         try:
