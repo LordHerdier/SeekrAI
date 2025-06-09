@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import os
 from resume_processor import ResumeProcessor
 from config_loader import get_config
+import pandas as pd
 
 load_dotenv()
 config = get_config()
@@ -92,12 +93,54 @@ def test_resume_processing_pipeline(resume_file="sample_resume.txt", target_loca
                     print(f"Site: {job.get('site', 'N/A')}")
                     print("-" * 40)
                 
+                # Step 4: Job Analysis (NEW) - Analyze and rank jobs if enabled
+                jobs_list = jobs.to_dict('records')  # Convert DataFrame to list of dicts
+                
+                if config.get_job_analysis_enabled():
+                    print(f"\n🔍 Job analysis enabled - analyzing jobs...")
+                    analyzed_jobs = processor.analyze_and_rank_jobs(
+                        jobs_list, 
+                        keywords_data, 
+                        max_jobs=config.get_max_jobs_to_analyze()
+                    )
+                    
+                    # Show top ranked jobs if similarity ranking is enabled
+                    if config.get_similarity_ranking_enabled():
+                        print("\nTop 3 ranked jobs by similarity:")
+                        print("-" * 50)
+                        for i, job in enumerate(analyzed_jobs[:3]):
+                            if job.get('analyzed', False):
+                                score = job.get('similarity_score', 0)
+                                print(f"#{i+1} ({score:.1f}/10.0) {job.get('title', 'N/A')} at {job.get('company', 'N/A')}")
+                                if job.get('salary_min_extracted') or job.get('salary_max_extracted'):
+                                    salary_min = job.get('salary_min_extracted') or 'N/A'
+                                    salary_max = job.get('salary_max_extracted') or 'N/A'
+                                    confidence = job.get('salary_confidence', 0)
+                                    print(f"    Salary: ${salary_min} - ${salary_max} (confidence: {confidence:.1f})")
+                                if job.get('key_matches'):
+                                    print(f"    Key matches: {', '.join(job['key_matches'][:3])}")
+                                print("-" * 50)
+                    
+                    # Convert back to DataFrame for CSV export (with new analysis columns)
+                    jobs = pd.DataFrame(analyzed_jobs)
+                else:
+                    print(f"\n🔍 Job analysis disabled in configuration")
+                
                 # Save results with resume-specific filename
                 resume_name = os.path.splitext(os.path.basename(resume_file))[0]
                 position_suffix = f"_{desired_position.replace(' ', '_').lower()}" if desired_position else ""
                 output_file = f"ai_generated_jobs_{resume_name}{position_suffix}.csv"
                 jobs.to_csv(output_file, quoting=csv.QUOTE_NONNUMERIC, escapechar="\\", index=False)
                 print(f"\nResults saved to {output_file}")
+                
+                # Show analysis summary if enabled
+                if config.get_job_analysis_enabled():
+                    analyzed_count = sum(1 for job in jobs.to_dict('records') if job.get('analyzed', False))
+                    print(f"Analysis summary: {analyzed_count}/{len(jobs)} jobs analyzed")
+                    if config.get_salary_analysis_enabled():
+                        salary_extracted_count = sum(1 for job in jobs.to_dict('records') 
+                                                   if job.get('salary_min_extracted') or job.get('salary_max_extracted'))
+                        print(f"Salary extraction: {salary_extracted_count}/{analyzed_count} jobs had extractable salary info")
                 
         print("\n" + "="*60)
         print("PIPELINE TEST COMPLETED SUCCESSFULLY!")
@@ -202,6 +245,12 @@ def main():
         print(f"Job Hours Old: {config.get_job_hours_old()}")
         print(f"Professional Domains: {config.get_professional_domains()}")
         print(f"PII Removal Enabled: {config.get('resume_processing.pii_removal.enabled', True)}")
+        print(f"Job Analysis Enabled: {config.get_job_analysis_enabled()}")
+        print(f"Max Jobs to Analyze: {config.get_max_jobs_to_analyze()}")
+        print(f"Analysis Batch Size: {config.get_job_analysis_batch_size()}")
+        print(f"Salary Analysis Enabled: {config.get_salary_analysis_enabled()}")
+        print(f"Similarity Ranking Enabled: {config.get_similarity_ranking_enabled()}")
+        print(f"Job Analysis Model: {config.get_job_analysis_model()}")
         print("="*50)
         return
     

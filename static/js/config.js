@@ -68,6 +68,16 @@ window.SeekrAIConfig = {
         clearCache: '/clear_cache'
     },
     
+    // Job analysis settings (NEW)
+    jobAnalysis: {
+        enabled: false,  // This will be set by the server/backend
+        showSimilarityScores: true,
+        showExtractedSalary: true,
+        showKeyMatches: true,
+        showAnalysisExplanation: true,
+        maxKeyMatchesToShow: 3
+    },
+    
     // Development settings
     development: {
         enableDebugLogs: false,

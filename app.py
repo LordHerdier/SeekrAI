@@ -232,6 +232,46 @@ def search_jobs():
         
         logger.info(f"Job search completed - Found {len(jobs)} jobs")
         
+        # Job Analysis Step (NEW) - Analyze and rank jobs if enabled
+        jobs_analyzed = False
+        if config.get_job_analysis_enabled() and len(jobs) > 0:
+            logger.info("Job analysis enabled - analyzing jobs for salary and similarity")
+            
+            try:
+                # We need the keywords for analysis - get them from the data
+                keywords = data.get('keywords', {})
+                if not keywords:
+                    logger.warning("No keywords available for job analysis")
+                else:
+                    # Initialize processor for job analysis
+                    processor = ResumeProcessor()
+                    
+                    # Convert jobs DataFrame to list of dictionaries
+                    jobs_list = jobs.to_dict('records')
+                    
+                    # Analyze and rank jobs
+                    analyzed_jobs_list = processor.analyze_and_rank_jobs(
+                        jobs_list, 
+                        keywords, 
+                        max_jobs=config.get_max_jobs_to_analyze()
+                    )
+                    
+                    # Convert back to DataFrame
+                    jobs = pd.DataFrame(analyzed_jobs_list)
+                    jobs_analyzed = True
+                    
+                    analyzed_count = sum(1 for job in analyzed_jobs_list if job.get('analyzed', False))
+                    logger.info(f"Job analysis completed - {analyzed_count}/{len(jobs)} jobs analyzed")
+                    
+            except Exception as e:
+                logger.error(f"Error during job analysis: {str(e)}", exc_info=True)
+                # Continue without analysis if it fails
+        
+        elif config.get_job_analysis_enabled():
+            logger.info("Job analysis enabled but no jobs found to analyze")
+        else:
+            logger.info("Job analysis disabled in configuration")
+        
         # Generate output filename and save to job results folder
         resume_name = os.path.splitext(filename.split('_', 1)[1] if '_' in filename else filename)[0]
         position_suffix = f"_{desired_position.replace(' ', '_').lower()}" if desired_position else ""
@@ -258,7 +298,7 @@ def search_jobs():
                 else:
                     description = str(description)
             
-            jobs_list.append({
+            job_dict = {
                 'title': job.get('title', 'N/A'),
                 'company': job.get('company', 'N/A'),
                 'location': job.get('location', 'N/A'),
@@ -268,11 +308,29 @@ def search_jobs():
                 'salary_min': job.get('salary_min', ''),
                 'salary_max': job.get('salary_max', ''),
                 'date_posted': str(job.get('date_posted', ''))
-            })
+            }
+            
+            # Add analysis data if available
+            if jobs_analyzed:
+                job_dict.update({
+                    'analyzed': job.get('analyzed', False),
+                    'similarity_score': job.get('similarity_score', 0.0),
+                    'similarity_explanation': job.get('similarity_explanation', ''),
+                    'salary_min_extracted': job.get('salary_min_extracted'),
+                    'salary_max_extracted': job.get('salary_max_extracted'),
+                    'salary_confidence': job.get('salary_confidence', 0.0),
+                    'key_matches': job.get('key_matches', []),
+                    'missing_requirements': job.get('missing_requirements', [])
+                })
+            
+            # Sanitize the job dictionary for JSON safety
+            job_dict = sanitize_job_for_json(job_dict)
+            jobs_list.append(job_dict)
         
         logger.info(f"Returning {len(jobs_list)} jobs to client")
         
-        return jsonify({
+        # Prepare response data
+        response_data = {
             'success': True,
             'jobs': jobs_list,
             'count': len(jobs_list),
@@ -281,8 +339,41 @@ def search_jobs():
                 'location': location,
                 'results_wanted': results_wanted
             },
-            'output_file': output_filename
-        })
+            'output_file': output_filename,
+            'analysis_enabled': config.get_job_analysis_enabled(),
+            'jobs_analyzed': jobs_analyzed
+        }
+        
+        # Add analysis summary if jobs were analyzed
+        if jobs_analyzed:
+            analyzed_count = sum(1 for job in jobs_list if job.get('analyzed', False))
+            salary_extracted_count = sum(1 for job in jobs_list 
+                                       if job.get('salary_min_extracted') or job.get('salary_max_extracted'))
+            response_data['analysis_summary'] = {
+                'analyzed_count': analyzed_count,
+                'total_count': len(jobs_list),
+                'salary_extracted_count': salary_extracted_count
+            }
+        
+        # Try to serialize response and catch any JSON errors
+        try:
+            return jsonify(response_data)
+        except (TypeError, ValueError) as e:
+            logger.error(f"JSON serialization error: {str(e)}")
+            logger.error("Response data structure causing the error:")
+            
+            # Log problematic fields for debugging
+            for i, job in enumerate(jobs_list[:3]):  # Check first 3 jobs
+                logger.error(f"Job {i} fields: {list(job.keys())}")
+                for key, value in job.items():
+                    if isinstance(value, str) and ('"' in value or '\n' in value or '\\' in value):
+                        logger.error(f"  Problematic field {key}: {repr(value[:100])}")
+            
+            # Return a safe error response
+            return jsonify({
+                'success': False,
+                'error': 'Error formatting job results for display. Please try again.'
+            }), 500
         
     except Exception as e:
         logger.error(f"Error during job search: {str(e)}", exc_info=True)
@@ -445,6 +536,53 @@ def not_found(e):
 def internal_error(e):
     logger.error(f"500 internal server error: {str(e)}", exc_info=True)
     return render_template('500.html'), 500
+
+def sanitize_string_for_json(value):
+    """Sanitize a string value to be JSON-safe"""
+    if not isinstance(value, str):
+        return value
+    
+    # Replace problematic characters that can break JSON
+    value = value.replace('\n', ' ')  # Replace newlines with spaces
+    value = value.replace('\r', ' ')  # Replace carriage returns with spaces
+    value = value.replace('\t', ' ')  # Replace tabs with spaces
+    value = value.replace('"', "'")   # Replace double quotes with single quotes
+    value = value.replace('\\', '/')  # Replace backslashes with forward slashes
+    
+    # Remove any remaining control characters
+    import re
+    value = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', value)
+    
+    # Limit length to prevent extremely long strings
+    if len(value) > 1000:
+        value = value[:1000] + "..."
+    
+    return value.strip()
+
+def sanitize_job_for_json(job_dict):
+    """Sanitize all string fields in a job dictionary for JSON safety"""
+    sanitized_job = {}
+    
+    for key, value in job_dict.items():
+        if isinstance(value, str):
+            sanitized_job[key] = sanitize_string_for_json(value)
+        elif isinstance(value, list):
+            # Sanitize list items if they are strings
+            sanitized_job[key] = [sanitize_string_for_json(item) if isinstance(item, str) else item for item in value]
+        elif isinstance(value, float):
+            # Handle NaN and infinity values
+            import math
+            if math.isnan(value) or math.isinf(value):
+                sanitized_job[key] = None
+            else:
+                sanitized_job[key] = value
+        elif pd.isna(value):
+            # Handle pandas NaN values
+            sanitized_job[key] = None
+        else:
+            sanitized_job[key] = value
+    
+    return sanitized_job
 
 if __name__ == '__main__':
     # Check if OpenAI API key is set

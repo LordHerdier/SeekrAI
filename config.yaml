@@ -53,6 +53,20 @@ job_search:
   default_country: "USA"
   description_max_length: 500
   default_location: "Remote"
+
+# Job Analysis and Ranking (NEW)
+# WARNING: This feature uses additional OpenAI API calls and will incur extra costs!
+# Estimated cost: ~$0.002-0.005 per job analyzed (depending on model and job description length)
+# For 20 jobs analyzed: ~$0.04-0.10 per search. To enable: Set 'enabled: true' below
+job_analysis:
+  enabled: true  # Set to true to enable job analysis and ranking
+  analyze_salary: true  # Extract salary information from job descriptions
+  rank_by_similarity: true  # Rank jobs by similarity to resume
+  max_jobs_to_analyze: 20  # Limit to control API costs
+  salary_extraction_confidence_threshold: 0.7  # Confidence threshold for salary extraction
+  similarity_ranking_model: "gpt-3.5-turbo"  # Model for job similarity ranking
+  batch_size: 5  # Number of jobs to process in each API call (cost optimization)
+  cache_analysis_results: true  # Cache analysis results to avoid re-processing
   
 # Resume Processing
 resume_processing:

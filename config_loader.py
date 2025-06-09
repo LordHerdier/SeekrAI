@@ -232,6 +232,38 @@ class ConfigLoader:
         """Get list of professional domains to preserve in PII removal."""
         return self.get_list('resume_processing.pii_removal.professional_domains', 
                            ['github.com', 'linkedin.com', 'stackoverflow.com'])
+    
+    def get_job_analysis_enabled(self) -> bool:
+        """Get whether job analysis and ranking is enabled."""
+        return self.get('job_analysis.enabled', False)
+    
+    def get_job_analysis_config(self) -> Dict:
+        """Get complete job analysis configuration."""
+        return self.get_dict('job_analysis')
+    
+    def get_max_jobs_to_analyze(self) -> int:
+        """Get maximum number of jobs to analyze."""
+        return self.get('job_analysis.max_jobs_to_analyze', 20)
+    
+    def get_job_analysis_batch_size(self) -> int:
+        """Get batch size for job analysis API calls."""
+        return self.get('job_analysis.batch_size', 5)
+    
+    def get_salary_analysis_enabled(self) -> bool:
+        """Get whether salary extraction is enabled."""
+        return self.get('job_analysis.analyze_salary', True)
+    
+    def get_similarity_ranking_enabled(self) -> bool:
+        """Get whether similarity ranking is enabled."""
+        return self.get('job_analysis.rank_by_similarity', True)
+    
+    def get_job_analysis_model(self) -> str:
+        """Get the model to use for job analysis."""
+        return self.get('job_analysis.similarity_ranking_model', 'gpt-3.5-turbo')
+    
+    def get_salary_confidence_threshold(self) -> float:
+        """Get confidence threshold for salary extraction."""
+        return self.get('job_analysis.salary_extraction_confidence_threshold', 0.7)
 
 
 # Global configuration instance
