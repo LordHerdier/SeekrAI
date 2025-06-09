@@ -6,7 +6,7 @@ This guide covers deploying SeekrAI in a production environment using Docker and
 
 1. **Clone and configure**:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/LordHerdier/seekrai.git
    cd seekrai
    cp .env.production .env
    # Edit .env with your actual values
@@ -26,7 +26,7 @@ This guide covers deploying SeekrAI in a production environment using Docker and
 ### System Requirements
 - **OS**: Linux (Ubuntu 20.04+ recommended), macOS, or Windows with WSL2
 - **CPU**: 2+ cores recommended
-- **RAM**: 4GB minimum, 8GB recommended
+- **RAM**: 1GB minimum, 4GB recommended
 - **Storage**: 10GB minimum free space
 - **Network**: Internet access for API calls and job scraping
 
