@@ -1,305 +1,350 @@
+#!/usr/bin/env python3
+"""
+SeekrAI - AI-Powered Job Search Tool
+Command Line Interface for resume processing and job searching
+"""
+
 import csv
 import json
 import argparse
-from jobspy import scrape_jobs
-from dotenv import load_dotenv
 import os
-from resume_processor import ResumeProcessor
+import logging
+from pathlib import Path
+from datetime import datetime
+from dotenv import load_dotenv
+from jobspy import scrape_jobs
+from processors.resume_processor import ResumeProcessor
 from config_loader import get_config
-import pandas as pd
+from utils.logging_setup import setup_logging
 
+# Load environment variables
 load_dotenv()
-config = get_config()
 
-def test_resume_processing_pipeline(resume_file="sample_resume.txt", target_location=None, results_wanted=None, desired_position=None):
-    """Test the complete pipeline: resume -> keywords -> search terms -> job scraping"""
+# Initialize configuration and logging
+config = get_config()
+logger = setup_logging()
+
+def test_resume_processing_pipeline(resume_file, target_location=None, desired_position=None, results_wanted=None):
+    """
+    Test the complete resume processing pipeline including job scraping
     
-    # Use config defaults if not specified
-    if results_wanted is None:
-        results_wanted = config.get_default_job_results()
-    
-    # Initialize the resume processor
-    processor = ResumeProcessor()
-    
-    print("="*60)
-    print("TESTING RESUME PROCESSING PIPELINE")
-    print("="*60)
-    print(f"Resume File: {resume_file}")
-    print(f"Target Location: {target_location or 'From resume'}")
-    print(f"Desired Position: {desired_position or 'From resume analysis'}")
-    print(f"Job Results Limit: {results_wanted}")
-    print("="*60)
+    Args:
+        resume_file (str): Path to the resume file
+        target_location (str, optional): Target job location
+        desired_position (str, optional): Desired job position
+        results_wanted (int, optional): Number of job results to return
+    """
+    logger.info(f"=== Starting Resume Processing Pipeline Test ===")
+    logger.info(f"Resume file: {resume_file}")
+    logger.info(f"Target location: {target_location}")
+    logger.info(f"Desired position: {desired_position}")
+    logger.info(f"Results wanted: {results_wanted}")
     
     try:
-        # Process the resume
-        results = processor.process_resume(
-            resume_file, 
+        # Initialize processor
+        processor = ResumeProcessor()
+        
+        # Step 1: Process resume
+        logger.info("Step 1: Processing resume...")
+        resume_results = processor.process_resume(
+            resume_file,
             target_location=target_location,
             desired_position=desired_position
         )
         
-        if not results:
-            print("❌ Failed to process resume")
-            return None
-            
-        keywords_data = results["keywords"]
-        search_terms = results["search_terms"]
+        keywords = resume_results.get('keywords', {})
+        search_terms = resume_results.get('search_terms', {})
         
-        print("\n" + "="*40)
-        print("EXTRACTED KEYWORDS")
-        print("="*40)
-        print(json.dumps(keywords_data, indent=2))
+        logger.info(f"✓ Resume processed successfully")
+        logger.info(f"  - Keywords extracted: {len(keywords)}")
+        logger.info(f"  - Search terms generated: {len(search_terms)}")
         
-        print("\n" + "="*40)
-        print("GENERATED SEARCH TERMS") 
-        print("="*40)
-        print(json.dumps(search_terms, indent=2))
+        # Step 2: Perform job search
+        logger.info("Step 2: Performing job search...")
         
-        # Use the search terms for job scraping
-        if search_terms:
-            primary_terms = search_terms.get("primary_search_terms", ["software engineer"])
-            search_term = primary_terms[0] if primary_terms else "software engineer"
-            
-            # If desired position was specified, prioritize it in the search
-            if desired_position and desired_position.lower() not in search_term.lower():
-                search_term = f"{desired_position} {search_term}".strip()
-            
-            location = search_terms.get("location", target_location or config.get('job_search.default_location', 'Remote'))
-            google_search = search_terms.get("google_search_string", f"{search_term} jobs near {location}")
-            
-            print(f"\n🔍 Searching for jobs...")
-            print(f"Search Term: {search_term}")
-            print(f"Location: {location}")
-            print(f"Google Search: {google_search}")
-            
-            jobs = scrape_jobs(
-                site_name=config.get_job_search_sites(),
-                search_term=search_term,
-                google_search_term=google_search,
-                location=location,
-                results_wanted=results_wanted,
-                hours_old=config.get_job_hours_old(),
-                country_indeed=config.get('job_search.default_country', 'USA')
-            )
-            
-            print(f"\nFound {len(jobs)} jobs")
-            if len(jobs) > 0:
-                print("\nFirst few job results:")
-                print("-" * 40)
-                for i, job in jobs.head(min(3, len(jobs))).iterrows():
-                    print(f"Title: {job.get('title', 'N/A')}")
-                    print(f"Company: {job.get('company', 'N/A')}")
-                    print(f"Location: {job.get('location', 'N/A')}")
-                    print(f"Site: {job.get('site', 'N/A')}")
-                    print("-" * 40)
-                
-                # Step 4: Job Analysis (NEW) - Analyze and rank jobs if enabled
-                jobs_list = jobs.to_dict('records')  # Convert DataFrame to list of dicts
-                
-                if config.get_job_analysis_enabled():
-                    print(f"\n🔍 Job analysis enabled - analyzing jobs...")
-                    analyzed_jobs = processor.analyze_and_rank_jobs(
-                        jobs_list, 
-                        keywords_data, 
-                        max_jobs=config.get_max_jobs_to_analyze()
-                    )
-                    
-                    # Show top ranked jobs if similarity ranking is enabled
-                    if config.get_similarity_ranking_enabled():
-                        print("\nTop 3 ranked jobs by similarity:")
-                        print("-" * 50)
-                        for i, job in enumerate(analyzed_jobs[:3]):
-                            if job.get('analyzed', False):
-                                score = job.get('similarity_score', 0)
-                                print(f"#{i+1} ({score:.1f}/10.0) {job.get('title', 'N/A')} at {job.get('company', 'N/A')}")
-                                if job.get('salary_min_extracted') or job.get('salary_max_extracted'):
-                                    salary_min = job.get('salary_min_extracted') or 'N/A'
-                                    salary_max = job.get('salary_max_extracted') or 'N/A'
-                                    confidence = job.get('salary_confidence', 0)
-                                    print(f"    Salary: ${salary_min} - ${salary_max} (confidence: {confidence:.1f})")
-                                if job.get('key_matches'):
-                                    print(f"    Key matches: {', '.join(job['key_matches'][:3])}")
-                                print("-" * 50)
-                    
-                    # Convert back to DataFrame for CSV export (with new analysis columns)
-                    jobs = pd.DataFrame(analyzed_jobs)
-                else:
-                    print(f"\n🔍 Job analysis disabled in configuration")
-                
-                # Save results with resume-specific filename
-                resume_name = os.path.splitext(os.path.basename(resume_file))[0]
-                position_suffix = f"_{desired_position.replace(' ', '_').lower()}" if desired_position else ""
-                output_file = f"ai_generated_jobs_{resume_name}{position_suffix}.csv"
-                jobs.to_csv(output_file, quoting=csv.QUOTE_NONNUMERIC, escapechar="\\", index=False)
-                print(f"\nResults saved to {output_file}")
-                
-                # Show analysis summary if enabled
-                if config.get_job_analysis_enabled():
-                    analyzed_count = sum(1 for job in jobs.to_dict('records') if job.get('analyzed', False))
-                    print(f"Analysis summary: {analyzed_count}/{len(jobs)} jobs analyzed")
-                    if config.get_salary_analysis_enabled():
-                        salary_extracted_count = sum(1 for job in jobs.to_dict('records') 
-                                                   if job.get('salary_min_extracted') or job.get('salary_max_extracted'))
-                        print(f"Salary extraction: {salary_extracted_count}/{analyzed_count} jobs had extractable salary info")
-                
-        print("\n" + "="*60)
-        print("PIPELINE TEST COMPLETED SUCCESSFULLY!")
-        print("="*60)
+        # Prepare search parameters
+        primary_terms = search_terms.get("primary_search_terms", ["software engineer"])
+        search_term = primary_terms[0] if primary_terms else "software engineer"
         
-        return results
+        # If desired position was specified, prioritize it in the search
+        if desired_position and desired_position.lower() not in search_term.lower():
+            search_term = f"{desired_position} {search_term}".strip()
+        
+        location = search_terms.get("location", target_location or config.get('job_search.default_location', 'Remote'))
+        google_search = search_terms.get("google_search_string", f"{search_term} jobs near {location}")
+        
+        # Use provided results count or default from config
+        if results_wanted is None:
+            results_wanted = config.get_default_job_results()
+        
+        logger.info(f"  - Search term: '{search_term}'")
+        logger.info(f"  - Location: '{location}'")
+        logger.info(f"  - Results wanted: {results_wanted}")
+        
+        # Perform job search using jobspy
+        jobs = scrape_jobs(
+            site_name=config.get_job_search_sites(),
+            search_term=search_term,
+            google_search_term=google_search,
+            location=location,
+            results_wanted=results_wanted,
+            hours_old=config.get_job_hours_old(),
+            country_indeed=config.get('job_search.default_country', 'USA')
+        )
+        
+        logger.info(f"✓ Job search completed - Found {len(jobs)} jobs")
+        
+        # Step 3: Job Analysis (if enabled)
+        jobs_analyzed = False
+        if config.get_job_analysis_enabled() and len(jobs) > 0:
+            logger.info("Step 3: Analyzing jobs...")
+            
+            try:
+                # Convert jobs DataFrame to list of dictionaries
+                jobs_list = jobs.to_dict('records')
+                
+                # Analyze and rank jobs
+                analyzed_jobs_list = processor.analyze_and_rank_jobs(
+                    jobs_list, 
+                    keywords, 
+                    max_jobs=config.get_max_jobs_to_analyze()
+                )
+                
+                # Convert back to DataFrame
+                import pandas as pd
+                jobs = pd.DataFrame(analyzed_jobs_list)
+                jobs_analyzed = True
+                
+                analyzed_count = sum(1 for job in analyzed_jobs_list if job.get('analyzed', False))
+                logger.info(f"✓ Job analysis completed - {analyzed_count}/{len(jobs)} jobs analyzed")
+                
+            except Exception as e:
+                logger.error(f"Error during job analysis: {str(e)}", exc_info=True)
+                logger.warning("Continuing without job analysis...")
+        
+        # Step 4: Save results
+        logger.info("Step 4: Saving results...")
+        
+        # Generate output filename
+        resume_name = Path(resume_file).stem
+        position_suffix = f"_{desired_position.replace(' ', '_').lower()}" if desired_position else ""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"jobs_{resume_name}{position_suffix}_{timestamp}.csv"
+        
+        # Ensure job results directory exists
+        job_results_folder = config.get('files.job_results_folder', 'job_results')
+        os.makedirs(job_results_folder, exist_ok=True)
+        
+        output_path = os.path.join(job_results_folder, output_filename)
+        
+        # Save results to CSV
+        jobs.to_csv(output_path, quoting=csv.QUOTE_NONNUMERIC, escapechar="\\", index=False)
+        
+        logger.info(f"✓ Results saved to: {output_path}")
+        
+        # Summary
+        logger.info(f"=== Pipeline Test Complete ===")
+        logger.info(f"Total jobs found: {len(jobs)}")
+        if jobs_analyzed:
+            analyzed_count = sum(1 for _, job in jobs.iterrows() if job.get('analyzed', False))
+            logger.info(f"Jobs analyzed: {analyzed_count}")
+        logger.info(f"Results file: {output_filename}")
+        
+        return {
+            'success': True,
+            'jobs_count': len(jobs),
+            'jobs_analyzed': jobs_analyzed,
+            'output_file': output_path,
+            'keywords': keywords,
+            'search_terms': search_terms
+        }
         
     except Exception as e:
-        print(f"Error in pipeline: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+        logger.error(f"Pipeline test failed: {str(e)}", exc_info=True)
+        return {
+            'success': False,
+            'error': str(e)
+        }
 
-def simple_resume_test(resume_file="sample_resume.txt", target_location=None, desired_position=None):
-    """Simple test that only processes the resume without job scraping"""
-    print("="*50)
-    print("RESUME PROCESSING TEST (NO JOB SCRAPING)")
-    print("="*50)
+def simple_resume_test(resume_file, target_location=None, desired_position=None):
+    """
+    Simple test to process resume without job searching
+    
+    Args:
+        resume_file (str): Path to the resume file
+        target_location (str, optional): Target job location
+        desired_position (str, optional): Desired job position
+    """
+    logger.info(f"=== Starting Simple Resume Test ===")
+    logger.info(f"Resume file: {resume_file}")
     
     try:
+        # Initialize processor
         processor = ResumeProcessor()
+        
+        # Process resume
+        logger.info("Processing resume...")
         results = processor.process_resume(
             resume_file,
             target_location=target_location,
             desired_position=desired_position
         )
         
-        if results:
-            print("\n✅ Resume processing successful!")
-            print(f"Keywords extracted: {len(results.get('keywords', {}))}")
-            print(f"Search terms generated: {len(results.get('search_terms', {}))}")
-            print("\nKeywords:")
-            print(json.dumps(results.get("keywords", {}), indent=2))
-            print("\nSearch Terms:")
-            print(json.dumps(results.get("search_terms", {}), indent=2))
-        else:
-            print("❌ Resume processing failed")
-            
-        return results
+        keywords = results.get('keywords', {})
+        search_terms = results.get('search_terms', {})
+        
+        logger.info(f"✓ Resume processed successfully")
+        logger.info(f"Keywords extracted: {len(keywords)}")
+        logger.info(f"Search terms generated: {len(search_terms)}")
+        
+        # Display some results
+        print("\n=== KEYWORDS ===")
+        for category, items in keywords.items():
+            if items:
+                print(f"{category.upper()}: {', '.join(items[:5])}{'...' if len(items) > 5 else ''}")
+        
+        print("\n=== SEARCH TERMS ===")
+        for category, items in search_terms.items():
+            if isinstance(items, list):
+                print(f"{category.upper()}: {', '.join(items[:3])}{'...' if len(items) > 3 else ''}")
+            else:
+                print(f"{category.upper()}: {items}")
+        
+        return {
+            'success': True,
+            'keywords': keywords,
+            'search_terms': search_terms
+        }
         
     except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+        logger.error(f"Simple resume test failed: {str(e)}", exc_info=True)
+        return {
+            'success': False,
+            'error': str(e)
+        }
 
 def show_cache_info():
     """Display cache information"""
-    processor = ResumeProcessor()
-    cache_info = processor.get_cache_info()
+    logger.info("Displaying cache information")
     
-    print("="*40)
-    print("CACHE INFORMATION")
-    print("="*40)
-    print(f"Cache Directory: {cache_info['cache_directory']}")
-    print(f"Cache Files: {cache_info['cache_files_count']}")
-    print(f"Total Size: {cache_info['total_size_mb']} MB")
-    print(f"Expiration: {config.get_cache_expiration_days()} days")
-    
-    if cache_info['cache_files']:
-        print("\nCache Files:")
-        for file_info in cache_info['cache_files']:
-            status = "EXPIRED" if file_info['is_expired'] else "VALID"
-            print(f"  {file_info['key'][:12]}... | {file_info['size_kb']} KB | {file_info['created']} | {status}")
-    
-    print("="*40)
-    return cache_info
+    try:
+        processor = ResumeProcessor()
+        cache_info = processor.get_cache_info()
+        
+        print("\n=== CACHE INFORMATION ===")
+        print(f"Cache Directory: {cache_info.get('cache_directory', 'N/A')}")
+        print(f"Total Cache Files: {cache_info.get('total_files', 0)}")
+        print(f"Total Cache Size: {cache_info.get('total_size_mb', 0):.2f} MB")
+        
+        if cache_info.get('files'):
+            print("\nCache Files:")
+            for file_info in cache_info['files'][:10]:  # Show first 10 files
+                print(f"  - {file_info['name']} ({file_info['size_mb']:.2f} MB)")
+            
+            if len(cache_info['files']) > 10:
+                print(f"  ... and {len(cache_info['files']) - 10} more files")
+        
+    except Exception as e:
+        logger.error(f"Error displaying cache info: {str(e)}")
+        print(f"Error: {str(e)}")
 
 def clear_cache():
-    """Clear the cache"""
-    processor = ResumeProcessor()
-    processor.clear_cache()
+    """Clear the application cache"""
+    logger.info("Clearing application cache")
+    
+    try:
+        processor = ResumeProcessor()
+        processor.clear_cache()
+        logger.info("✓ Cache cleared successfully")
+        print("Cache cleared successfully!")
+        
+    except Exception as e:
+        logger.error(f"Error clearing cache: {str(e)}")
+        print(f"Error clearing cache: {str(e)}")
 
 def main():
-    parser = argparse.ArgumentParser(description="SeekrAI - AI-powered resume processing and job search")
-    parser.add_argument("-r", "--resume", type=str, help="Path to resume file")
-    parser.add_argument("-p", "--position", type=str, help="Desired job position")
-    parser.add_argument("-l", "--location", type=str, help="Target location")
-    parser.add_argument("-n", "--num-jobs", type=int, help=f"Number of jobs to search (default: {config.get_default_job_results()})")
-    parser.add_argument("--skip-scraping", action="store_true", help="Skip job scraping, only process resume")
-    parser.add_argument("--cache-info", action="store_true", help="Show cache information")
-    parser.add_argument("--clear-cache", action="store_true", help="Clear the cache")
-    parser.add_argument("--no-cache", action="store_true", help="Force fresh API calls (bypass cache)")
-    parser.add_argument("--config-test", action="store_true", help="Test configuration loading")
+    """Main CLI entry point"""
+    parser = argparse.ArgumentParser(
+        description="SeekrAI - AI-Powered Job Search Tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python main.py test resume.pdf --position "Software Engineer" --location "San Francisco, CA" --results 50
+  python main.py simple resume.pdf --position "Data Scientist"
+  python main.py cache-info
+  python main.py clear-cache
+        """
+    )
+    
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    
+    # Test command (full pipeline)
+    test_parser = subparsers.add_parser('test', help='Test full resume processing pipeline with job search')
+    test_parser.add_argument('resume_file', help='Path to resume file')
+    test_parser.add_argument('--position', help='Desired job position')
+    test_parser.add_argument('--location', help='Target job location')
+    test_parser.add_argument('--results', type=int, help='Number of job results to fetch')
+    
+    # Simple command (resume processing only)
+    simple_parser = subparsers.add_parser('simple', help='Simple resume processing without job search')
+    simple_parser.add_argument('resume_file', help='Path to resume file')
+    simple_parser.add_argument('--position', help='Desired job position')
+    simple_parser.add_argument('--location', help='Target job location')
+    
+    # Cache commands
+    subparsers.add_parser('cache-info', help='Show cache information')
+    subparsers.add_parser('clear-cache', help='Clear application cache')
     
     args = parser.parse_args()
     
-    # Configuration test
-    if args.config_test:
-        print("="*50)
-        print("CONFIGURATION TEST")
-        print("="*50)
-        print(f"OpenAI Model: {config.get_openai_model()}")
-        print(f"OpenAI Temperature: {config.get_openai_temperature()}")
-        print(f"Cache Directory: {config.get_cache_directory()}")
-        print(f"Cache Expiration: {config.get_cache_expiration_days()} days")
-        print(f"Upload Folder: {config.get_upload_folder()}")
-        print(f"Max File Size: {config.get('files.max_file_size_mb', 16)} MB")
-        print(f"Allowed Extensions: {config.get_allowed_extensions()}")
-        print(f"Job Search Sites: {config.get_job_search_sites()}")
-        print(f"Default Job Results: {config.get_default_job_results()}")
-        print(f"Job Hours Old: {config.get_job_hours_old()}")
-        print(f"Professional Domains: {config.get_professional_domains()}")
-        print(f"PII Removal Enabled: {config.get('resume_processing.pii_removal.enabled', True)}")
-        print(f"Job Analysis Enabled: {config.get_job_analysis_enabled()}")
-        print(f"Max Jobs to Analyze: {config.get_max_jobs_to_analyze()}")
-        print(f"Analysis Batch Size: {config.get_job_analysis_batch_size()}")
-        print(f"Salary Analysis Enabled: {config.get_salary_analysis_enabled()}")
-        print(f"Similarity Ranking Enabled: {config.get_similarity_ranking_enabled()}")
-        print(f"Job Analysis Model: {config.get_job_analysis_model()}")
-        print("="*50)
-        return
-    
-    # Cache operations
-    if args.cache_info:
-        show_cache_info()
-        return
+    if args.command == 'test':
+        if not os.path.exists(args.resume_file):
+            print(f"Error: Resume file '{args.resume_file}' not found")
+            return 1
         
-    if args.clear_cache:
-        clear_cache()
-        print("✅ Cache cleared")
-        return
+        result = test_resume_processing_pipeline(
+            args.resume_file,
+            target_location=args.location,
+            desired_position=args.position,
+            results_wanted=args.results
+        )
+        
+        if result['success']:
+            print("✓ Pipeline test completed successfully!")
+            return 0
+        else:
+            print(f"✗ Pipeline test failed: {result['error']}")
+            return 1
     
-    # Resume processing
-    if args.resume:
-        if not os.path.exists(args.resume):
-            print(f"❌ Resume file not found: {args.resume}")
-            return
-            
-        if args.skip_scraping:
-            simple_resume_test(
-                resume_file=args.resume,
-                target_location=args.location,
-                desired_position=args.position
-            )
+    elif args.command == 'simple':
+        if not os.path.exists(args.resume_file):
+            print(f"Error: Resume file '{args.resume_file}' not found")
+            return 1
+        
+        result = simple_resume_test(
+            args.resume_file,
+            target_location=args.location,
+            desired_position=args.position
+        )
+        
+        if result['success']:
+            print("✓ Simple resume test completed successfully!")
+            return 0
         else:
-            test_resume_processing_pipeline(
-                resume_file=args.resume,
-                target_location=args.location,
-                results_wanted=args.num_jobs,
-                desired_position=args.position
-            )
+            print(f"✗ Simple resume test failed: {result['error']}")
+            return 1
+    
+    elif args.command == 'cache-info':
+        show_cache_info()
+        return 0
+    
+    elif args.command == 'clear-cache':
+        clear_cache()
+        return 0
+    
     else:
-        # Default test with sample resume if it exists
-        sample_resume = "sample_resume.txt"
-        if os.path.exists(sample_resume):
-            print("No resume specified, using sample_resume.txt")
-            test_resume_processing_pipeline(
-                resume_file=sample_resume,
-                target_location=args.location,
-                results_wanted=args.num_jobs,
-                desired_position=args.position
-            )
-        else:
-            print("❌ No resume file specified and sample_resume.txt not found")
-            print("Usage: python main.py -r <resume_file> [-p <position>] [-l <location>] [-n <num_jobs>]")
-            print("       python main.py --cache-info")
-            print("       python main.py --clear-cache")
-            print("       python main.py --config-test")
+        parser.print_help()
+        return 1
 
 if __name__ == "__main__":
-    main()
+    exit(main())

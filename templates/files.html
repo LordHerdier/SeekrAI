@@ -131,7 +131,7 @@
                                 <td>{{ file.size_mb }} MB</td>
                                 <td>{{ file.modified }}</td>
                                 <td>
-                                    <a href="{{ url_for('download_file', filename=file.name) }}" 
+                                    <a href="{{ url_for('files.download_file', filename=file.name) }}" 
                                        class="btn btn-sm btn-outline-primary">
                                         📥 Download
                                     </a>
@@ -149,8 +149,8 @@
 
     <!-- Navigation -->
     <div class="text-center">
-        <a href="{{ url_for('index') }}" class="btn btn-primary">← Back to Home</a>
-        <a href="{{ url_for('cache_info') }}" class="btn btn-outline-secondary">🗄️ Cache Info</a>
+        <a href="{{ url_for('upload.index') }}" class="btn btn-primary">← Back to Home</a>
+        <a href="{{ url_for('files.cache_info') }}" class="btn btn-outline-secondary">🗄️ Cache Info</a>
     </div>
 </div>
 

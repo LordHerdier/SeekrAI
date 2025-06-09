@@ -20,7 +20,7 @@
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
-            <a class="navbar-brand" href="{{ url_for('index') }}">
+            <a class="navbar-brand" href="{{ url_for('upload.index') }}">
                 <i class="fas fa-search me-2"></i>SeekrAI
             </a>
             
@@ -31,17 +31,17 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('index') }}">
+                        <a class="nav-link" href="{{ url_for('upload.index') }}">
                             <i class="fas fa-home me-1"></i>Home
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('file_management') }}">
+                        <a class="nav-link" href="{{ url_for('files.file_management') }}">
                             <i class="fas fa-folder me-1"></i>Files
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('cache_info') }}">
+                        <a class="nav-link" href="{{ url_for('files.cache_info') }}">
                             <i class="fas fa-database me-1"></i>Cache
                         </a>
                     </li>

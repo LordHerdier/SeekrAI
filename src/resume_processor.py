@@ -1,3 +1,10 @@
+# This file has been refactored into smaller modules.
+# Import the new modular ResumeProcessor for backward compatibility
+from processors.resume_processor import ResumeProcessor
+
+# For backward compatibility, expose the ResumeProcessor class
+__all__ = ['ResumeProcessor']
+
 import os
 import re
 import json
