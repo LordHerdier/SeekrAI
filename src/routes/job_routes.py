@@ -1,5 +1,6 @@
 import os
 import csv
+import json
 import uuid
 import threading
 from datetime import datetime
@@ -12,31 +13,90 @@ import logging
 import unicodedata
 import re
 
+# Try to import Redis, fall back to in-memory storage if not available
+try:
+    import redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+
 # Create blueprint
 job_bp = Blueprint('jobs', __name__)
 
-# Global progress storage (in production, use Redis or database)
+# Global progress storage (fallback for development)
 job_progress_storage = {}
 progress_lock = threading.Lock()
 
+def get_redis_client():
+    """Get Redis client instance"""
+    try:
+        config = get_config()
+        redis_url = config.get('cache.redis_url', 'redis://localhost:6379/0')
+        client = redis.from_url(redis_url, decode_responses=True)
+        # Test connection
+        client.ping()
+        return client
+    except Exception as e:
+        logging.warning(f"Redis not available, falling back to in-memory storage: {e}")
+        return None
+
 def update_job_progress(job_id, phase, percent, details=None, analysis_progress=None):
     """Update progress for a job search"""
+    progress_data = {
+        'phase': phase,
+        'percent': percent,
+        'details': details,
+        'analysis_progress': analysis_progress,
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    # Try Redis first
+    if REDIS_AVAILABLE:
+        redis_client = get_redis_client()
+        if redis_client:
+            try:
+                redis_client.setex(
+                    f"job_progress:{job_id}", 
+                    3600,  # Expire after 1 hour
+                    json.dumps(progress_data)
+                )
+                return
+            except Exception as e:
+                logging.warning(f"Failed to store progress in Redis: {e}")
+    
+    # Fallback to in-memory storage
     with progress_lock:
-        job_progress_storage[job_id] = {
-            'phase': phase,
-            'percent': percent,
-            'details': details,
-            'analysis_progress': analysis_progress,
-            'timestamp': datetime.now().isoformat()
-        }
+        job_progress_storage[job_id] = progress_data
 
 def get_job_progress(job_id):
     """Get progress for a job search"""
+    # Try Redis first
+    if REDIS_AVAILABLE:
+        redis_client = get_redis_client()
+        if redis_client:
+            try:
+                progress_data = redis_client.get(f"job_progress:{job_id}")
+                if progress_data:
+                    return json.loads(progress_data)
+            except Exception as e:
+                logging.warning(f"Failed to get progress from Redis: {e}")
+    
+    # Fallback to in-memory storage
     with progress_lock:
         return job_progress_storage.get(job_id, {})
 
 def cleanup_job_progress(job_id):
     """Clean up progress storage for completed job"""
+    # Try Redis first
+    if REDIS_AVAILABLE:
+        redis_client = get_redis_client()
+        if redis_client:
+            try:
+                redis_client.delete(f"job_progress:{job_id}")
+            except Exception as e:
+                logging.warning(f"Failed to delete progress from Redis: {e}")
+    
+    # Also clean up in-memory storage
     with progress_lock:
         job_progress_storage.pop(job_id, None)
 
@@ -322,13 +382,38 @@ def perform_job_search_with_progress(job_id, search_terms, desired_position, tar
         }
         
         # Mark as complete with results
-        update_job_progress(job_id, 'complete', 100, 'Job search completed!', 
-                          analysis_progress=None)
+        final_progress = {
+            'phase': 'complete',
+            'percent': 100,
+            'details': 'Job search completed!',
+            'analysis_progress': None,
+            'results': results
+        }
         
-        # Store results for retrieval
-        with progress_lock:
-            job_progress_storage[job_id]['results'] = results
-            
+        # Store final progress with results using the proper storage method
+        if REDIS_AVAILABLE:
+            redis_client = get_redis_client()
+            if redis_client:
+                try:
+                    redis_client.setex(
+                        f"job_progress:{job_id}", 
+                        3600,  # Keep results for 1 hour
+                        json.dumps(final_progress)
+                    )
+                except Exception as e:
+                    logging.warning(f"Failed to store final results in Redis: {e}")
+                    # Fallback to in-memory
+                    with progress_lock:
+                        job_progress_storage[job_id] = final_progress
+            else:
+                # Fallback to in-memory
+                with progress_lock:
+                    job_progress_storage[job_id] = final_progress
+        else:
+            # In-memory storage
+            with progress_lock:
+                job_progress_storage[job_id] = final_progress
+        
         logging.info(f"Background job search completed for job_id: {job_id}")
         
         # Clean up after some time (in a real app, use a proper job queue)
@@ -445,9 +530,13 @@ def convert_jobs_to_response_format(jobs, config):
 @job_bp.route('/job_progress/<job_id>')
 def get_progress(job_id):
     """Get progress for a specific job search"""
+    logging.info(f"Progress requested for job_id: {job_id}")
+    
     progress = get_job_progress(job_id)
     
     if not progress:
+        logging.warning(f"No progress found for job_id: {job_id}")
         return jsonify({'error': 'Job not found or completed'}), 404
     
+    logging.info(f"Progress found for job_id: {job_id}, phase: {progress.get('phase', 'unknown')}")
     return jsonify(progress) 
