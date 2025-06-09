@@ -310,15 +310,47 @@ class ResumeProcessor:
     def get_cache_info(self) -> Dict:
         """Get information about cached responses"""
         if not self.cache_dir.exists():
-            return {"cache_files": 0, "total_size": 0}
+            return {
+                "cache_files_count": 0,
+                "total_size_mb": 0,
+                "cache_directory": str(self.cache_dir),
+                "cache_files": []
+            }
         
         cache_files = list(self.cache_dir.glob("*.json"))
         total_size = sum(f.stat().st_size for f in cache_files)
         
+        # Get detailed info about each cache file
+        cache_file_details = []
+        for cache_file in cache_files:
+            try:
+                # Read the cache file to get timestamp and check if expired
+                with open(cache_file, 'r') as f:
+                    cache_data = json.load(f)
+                
+                created_time = datetime.fromisoformat(cache_data.get('timestamp', ''))
+                is_expired = (datetime.now() - created_time).days > 7
+                
+                cache_file_details.append({
+                    'key': cache_file.stem,  # filename without extension
+                    'created': created_time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'size_kb': round(cache_file.stat().st_size / 1024, 2),
+                    'is_expired': is_expired
+                })
+            except Exception as e:
+                # If we can't read a cache file, just show basic info
+                cache_file_details.append({
+                    'key': cache_file.stem,
+                    'created': 'Unknown',
+                    'size_kb': round(cache_file.stat().st_size / 1024, 2),
+                    'is_expired': False
+                })
+        
         return {
-            "cache_files": len(cache_files),
-            "total_size": total_size,
-            "cache_dir": str(self.cache_dir)
+            "cache_files_count": len(cache_files),
+            "total_size_mb": round(total_size / (1024 * 1024), 2),
+            "cache_directory": str(self.cache_dir),
+            "cache_files": cache_file_details
         }
     
     def process_resume(self, resume_file_path: str, target_location: str = None, desired_position: str = None) -> Dict:
@@ -330,8 +362,8 @@ class ResumeProcessor:
         
         # Show cache info
         cache_info = self.get_cache_info()
-        if cache_info["cache_files"] > 0:
-            print(f"💾 Cache: {cache_info['cache_files']} files, {cache_info['total_size']} bytes")
+        if cache_info["cache_files_count"] > 0:
+            print(f"💾 Cache: {cache_info['cache_files_count']} files, {cache_info['total_size_mb']} MB")
         
         # Step 1: Read resume content
         resume_content = self.read_resume_file(resume_file_path)

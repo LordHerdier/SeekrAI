@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+
+{% block title %}Resume Analysis Results - SeekrAI{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-chart-line me-2"></i>Resume Analysis Results</h2>
+            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Start New Search
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Left Column: Analysis Results -->
+    <div class="col-md-6">
+        <!-- Keywords Card -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-success text-white">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-tags me-2"></i>Extracted Keywords
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if data.keywords %}
+                    <div class="row">
+                        <div class="col-12 mb-3">
+                            <h6><i class="fas fa-code me-1"></i>Technical Skills</h6>
+                            <div class="d-flex flex-wrap gap-1">
+                                {% for skill in data.keywords.technical_skills %}
+                                    <span class="badge bg-primary">{{ skill }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <div class="col-12 mb-3">
+                            <h6><i class="fas fa-briefcase me-1"></i>Job Titles</h6>
+                            <div class="d-flex flex-wrap gap-1">
+                                {% for title in data.keywords.job_titles %}
+                                    <span class="badge bg-info">{{ title }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <div class="col-12 mb-3">
+                            <h6><i class="fas fa-industry me-1"></i>Industries</h6>
+                            <div class="d-flex flex-wrap gap-1">
+                                {% for industry in data.keywords.industries %}
+                                    <span class="badge bg-warning text-dark">{{ industry }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <div class="col-12 mb-3">
+                            <h6><i class="fas fa-star me-1"></i>Specializations</h6>
+                            <div class="d-flex flex-wrap gap-1">
+                                {% for spec in data.keywords.specializations %}
+                                    <span class="badge bg-secondary">{{ spec }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-6">
+                                <h6><i class="fas fa-clock me-1"></i>Experience</h6>
+                                <p class="mb-0">{{ data.keywords.years_of_experience }}</p>
+                            </div>
+                            <div class="col-6">
+                                <h6><i class="fas fa-map-marker-alt me-1"></i>Location</h6>
+                                <p class="mb-0">{{ data.keywords.location }}</p>
+                            </div>
+                        </div>
+                    </div>
+                {% else %}
+                    <p class="text-muted">No keywords extracted</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Search Terms Card -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-info text-white">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-search me-2"></i>Generated Search Terms
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if data.search_terms %}
+                    <div class="mb-3">
+                        <h6><i class="fas fa-star me-1"></i>Primary Search Terms</h6>
+                        <div class="d-flex flex-wrap gap-1">
+                            {% for term in data.search_terms.primary_search_terms %}
+                                <span class="badge bg-primary">{{ term }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <h6><i class="fas fa-plus me-1"></i>Secondary Search Terms</h6>
+                        <div class="d-flex flex-wrap gap-1">
+                            {% for term in data.search_terms.secondary_search_terms %}
+                                <span class="badge bg-outline-primary">{{ term }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <h6><i class="fas fa-cogs me-1"></i>Skills-Based Terms</h6>
+                        <div class="d-flex flex-wrap gap-1">
+                            {% for term in data.search_terms.skills_based_terms %}
+                                <span class="badge bg-success">{{ term }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-light">
+                        <h6><i class="fas fa-google me-1"></i>Google Search String</h6>
+                        <code>{{ data.search_terms.google_search_string }}</code>
+                    </div>
+                {% else %}
+                    <p class="text-muted">No search terms generated</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Column: Job Search -->
+    <div class="col-md-6">
+        <!-- Job Search Form -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-rocket me-2"></i>Search for Jobs
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="jobSearchForm">
+                    <div class="mb-3">
+                        <label for="results_wanted" class="form-label">
+                            <i class="fas fa-list-ol me-1"></i>Number of Results
+                        </label>
+                        <select class="form-select" id="results_wanted" name="results_wanted">
+                            <option value="5">5 jobs</option>
+                            <option value="10" selected>10 jobs</option>
+                            <option value="20">20 jobs</option>
+                            <option value="50">50 jobs</option>
+                        </select>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg" id="searchBtn">
+                            <i class="fas fa-search me-2"></i>Search Jobs Now
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Job Results -->
+        <div id="jobResults" class="d-none">
+            <div class="card shadow-sm">
+                <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-briefcase me-2"></i>Job Results
+                    </h5>
+                    <span id="resultsCount" class="badge bg-light text-dark"></span>
+                </div>
+                <div class="card-body" id="jobsList" style="max-height: 600px; overflow-y: auto;">
+                    <!-- Job results will be populated here -->
+                </div>
+                <div class="card-footer">
+                    <button id="downloadBtn" class="btn btn-outline-success">
+                        <i class="fas fa-download me-1"></i>Download CSV
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Status -->
+        <div id="searchStatus" class="d-none">
+            <div class="card shadow-sm">
+                <div class="card-body text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-3 mb-0">Searching for jobs...</p>
+                    <small class="text-muted">This may take a few moments</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden form data -->
+<script type="application/json" id="resumeData">
+{{ data | tojson }}
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Get resume data from the page
+const resumeData = JSON.parse(document.getElementById('resumeData').textContent);
+
+document.getElementById('jobSearchForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const searchBtn = document.getElementById('searchBtn');
+    const originalBtnText = searchBtn.innerHTML;
+    const resultsDiv = document.getElementById('jobResults');
+    const statusDiv = document.getElementById('searchStatus');
+    
+    // Show loading state
+    searchBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Searching...';
+    searchBtn.disabled = true;
+    resultsDiv.classList.add('d-none');
+    statusDiv.classList.remove('d-none');
+    
+    // Prepare search data
+    const searchData = {
+        search_terms: resumeData.search_terms,
+        desired_position: resumeData.desired_position,
+        target_location: resumeData.target_location,
+        results_wanted: document.getElementById('results_wanted').value,
+        filename: resumeData.filename
+    };
+    
+    // Make AJAX request
+    fetch('/search_jobs', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(searchData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        statusDiv.classList.add('d-none');
+        
+        if (data.success) {
+            displayJobResults(data);
+        } else {
+            alert('Error searching for jobs: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        statusDiv.classList.add('d-none');
+        alert('Error searching for jobs. Please try again.');
+    })
+    .finally(() => {
+        // Reset button state
+        searchBtn.innerHTML = originalBtnText;
+        searchBtn.disabled = false;
+    });
+});
+
+function displayJobResults(data) {
+    const resultsDiv = document.getElementById('jobResults');
+    const countSpan = document.getElementById('resultsCount');
+    const jobsList = document.getElementById('jobsList');
+    const downloadBtn = document.getElementById('downloadBtn');
+    
+    countSpan.textContent = `${data.count} jobs found`;
+    
+    // Clear previous results
+    jobsList.innerHTML = '';
+    
+    if (data.jobs && data.jobs.length > 0) {
+        data.jobs.forEach((job, index) => {
+            const jobCard = document.createElement('div');
+            jobCard.className = 'card mb-3';
+            jobCard.innerHTML = `
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h6 class="card-title mb-0">${job.title}</h6>
+                        <small class="text-muted">${job.site}</small>
+                    </div>
+                    <p class="card-text mb-1">
+                        <i class="fas fa-building me-1"></i>${job.company}
+                    </p>
+                    <p class="card-text mb-2">
+                        <i class="fas fa-map-marker-alt me-1"></i>${job.location}
+                    </p>
+                    ${job.salary_min && job.salary_max ? 
+                        `<p class="card-text mb-2">
+                            <i class="fas fa-dollar-sign me-1"></i>$${job.salary_min} - $${job.salary_max}
+                        </p>` : ''}
+                    ${job.description ? 
+                        `<p class="card-text text-muted small">${job.description}</p>` : ''}
+                    ${job.job_url ? 
+                        `<a href="${job.job_url}" target="_blank" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-external-link-alt me-1"></i>View Job
+                        </a>` : ''}
+                </div>
+            `;
+            jobsList.appendChild(jobCard);
+        });
+        
+        // Set up download button
+        downloadBtn.onclick = function() {
+            window.location.href = `/download/${data.output_file}`;
+        };
+    } else {
+        jobsList.innerHTML = '<div class="alert alert-info">No jobs found. Try adjusting your search parameters.</div>';
+    }
+    
+    resultsDiv.classList.remove('d-none');
+}
+</script>
+{% endblock %} 
