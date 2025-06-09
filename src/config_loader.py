@@ -5,19 +5,32 @@ from pathlib import Path
 from typing import Any, Dict, List, Union
 
 
+def _get_project_root():
+    """Get the project root directory."""
+    # Get the directory containing this config_loader.py file (src/)
+    current_dir = Path(__file__).parent
+    # Go up one level to get the project root
+    return current_dir.parent
+
+
 class ConfigLoader:
     """
     Configuration loader for SeekrAI application.
     Loads configuration from YAML file with environment variable overrides.
     """
     
-    def __init__(self, config_file: str = "config.yaml"):
+    def __init__(self, config_file: str = None):
         """
         Initialize the configuration loader.
         
         Args:
             config_file: Path to the YAML configuration file
         """
+        if config_file is None:
+            # Default to config/config.yaml relative to project root
+            project_root = _get_project_root()
+            config_file = project_root / "config" / "config.yaml"
+        
         self.config_file = Path(config_file)
         self._config = {}
         self._load_config()
@@ -270,7 +283,7 @@ class ConfigLoader:
 _config_instance = None
 
 
-def get_config(config_file: str = "config.yaml") -> ConfigLoader:
+def get_config(config_file: str = None) -> ConfigLoader:
     """
     Get the global configuration instance (singleton pattern).
     
