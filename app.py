@@ -10,6 +10,7 @@ from werkzeug.utils import secure_filename
 from jobspy import scrape_jobs
 from resume_processor import ResumeProcessor
 from dotenv import load_dotenv
+import pandas as pd
 
 # Load environment variables
 load_dotenv()
@@ -225,13 +226,22 @@ def search_jobs():
         # Convert jobs DataFrame to list of dictionaries for JSON response
         jobs_list = []
         for i, job in jobs.iterrows():
+            # Safely handle description field that might be float/NaN
+            description = job.get('description', '')
+            if not isinstance(description, str):
+                # Convert non-string values (like float/NaN) to empty string
+                if pd.isna(description):
+                    description = ''
+                else:
+                    description = str(description)
+            
             jobs_list.append({
                 'title': job.get('title', 'N/A'),
                 'company': job.get('company', 'N/A'),
                 'location': job.get('location', 'N/A'),
                 'site': job.get('site', 'N/A'),
                 'job_url': job.get('job_url', ''),
-                'description': job.get('description', '')[:500] + '...' if job.get('description', '') else '',
+                'description': description[:500] + '...' if description else '',
                 'salary_min': job.get('salary_min', ''),
                 'salary_max': job.get('salary_max', ''),
                 'date_posted': str(job.get('date_posted', ''))
