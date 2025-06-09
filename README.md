@@ -5,6 +5,11 @@ SeekrAI is an intelligent job analysis and processing platform that helps users 
 [![Docker Image](https://img.shields.io/badge/docker-lordherdier%2Fseekrai-blue)](https://hub.docker.com/r/lordherdier/seekrai)
 [![Docker Pulls](https://img.shields.io/docker/pulls/lordherdier/seekrai)](https://hub.docker.com/r/lordherdier/seekrai)
 
+
+![image](https://github.com/user-attachments/assets/869a2eb7-e2aa-47f4-8833-0c58ed23a80b)
+
+
+
 ## 🚀 Features
 
 - **Job Data Processing**: Upload and analyze job posting data
