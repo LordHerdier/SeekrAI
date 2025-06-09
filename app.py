@@ -11,15 +11,19 @@ from jobspy import scrape_jobs
 from resume_processor import ResumeProcessor
 from dotenv import load_dotenv
 import pandas as pd
+from config_loader import get_config
 
 # Load environment variables
 load_dotenv()
 
+# Initialize configuration
+config = get_config()
+
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['JOB_RESULTS_FOLDER'] = 'job_results'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['SECRET_KEY'] = config.get_secret_key()
+app.config['UPLOAD_FOLDER'] = config.get_upload_folder()
+app.config['JOB_RESULTS_FOLDER'] = config.get('files.job_results_folder', 'job_results')
+app.config['MAX_CONTENT_LENGTH'] = config.get_max_file_size_bytes()
 
 # Ensure required directories exist
 def ensure_directories():
@@ -27,8 +31,8 @@ def ensure_directories():
     directories = [
         app.config['UPLOAD_FOLDER'],
         app.config['JOB_RESULTS_FOLDER'],
-        'logs',
-        '.cache'
+        config.get('files.logs_folder', 'logs'),
+        config.get_cache_directory()
     ]
     for directory in directories:
         os.makedirs(directory, exist_ok=True)
@@ -39,42 +43,44 @@ ensure_directories()
 def setup_logging():
     """Configure application-wide logging"""
     # Create logs directory if it doesn't exist
-    logs_dir = Path('logs')
+    logs_dir = Path(config.get('files.logs_folder', 'logs'))
     logs_dir.mkdir(exist_ok=True)
     
     # Configure logging format
-    log_format = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
-    )
+    log_format = logging.Formatter(config.get('logging.format'))
     
     # Get the root logger
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    log_level = getattr(logging, config.get('logging.level', 'INFO').upper())
+    logger.setLevel(log_level)
     
     # Clear any existing handlers
     logger.handlers.clear()
     
     # Console handler
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(log_level)
     console_handler.setFormatter(log_format)
     logger.addHandler(console_handler)
     
     # File handler with rotation
+    max_bytes = config.get('logging.max_file_size_mb', 10) * 1024 * 1024
+    backup_count = config.get('logging.backup_count', 5)
+    
     file_handler = logging.handlers.RotatingFileHandler(
         logs_dir / 'seekrai.log',
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5
+        maxBytes=max_bytes,
+        backupCount=backup_count
     )
-    file_handler.setLevel(logging.INFO)
+    file_handler.setLevel(log_level)
     file_handler.setFormatter(log_format)
     logger.addHandler(file_handler)
     
     # Error file handler
     error_handler = logging.handlers.RotatingFileHandler(
         logs_dir / 'seekrai_errors.log',
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5
+        maxBytes=max_bytes,
+        backupCount=backup_count
     )
     error_handler.setLevel(logging.ERROR)
     error_handler.setFormatter(log_format)
@@ -90,7 +96,7 @@ def setup_logging():
 logger = setup_logging()
 
 # Allowed file extensions
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'docx', 'doc'}
+ALLOWED_EXTENSIONS = config.get_allowed_extensions()
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -179,7 +185,8 @@ def upload_resume():
     
     else:
         logger.warning(f"Invalid file type uploaded: {file.filename}")
-        flash('Invalid file type. Please upload a .txt, .pdf, or .docx file.')
+        allowed_exts = ', '.join(f'.{ext}' for ext in ALLOWED_EXTENSIONS)
+        flash(f'Invalid file type. Please upload a {allowed_exts} file.')
         return redirect(url_for('index'))
 
 @app.route('/search_jobs', methods=['POST'])
@@ -194,7 +201,7 @@ def search_jobs():
         search_terms = data.get('search_terms', {})
         desired_position = data.get('desired_position', '')
         target_location = data.get('target_location', '')
-        results_wanted = int(data.get('results_wanted', 10))
+        results_wanted = int(data.get('results_wanted', config.get_default_job_results()))
         filename = data.get('filename', 'resume')
         
         logger.info(f"Job search parameters - Position: {desired_position}, Location: {target_location}, Results: {results_wanted}")
@@ -207,20 +214,20 @@ def search_jobs():
         if desired_position and desired_position.lower() not in search_term.lower():
             search_term = f"{desired_position} {search_term}".strip()
         
-        location = search_terms.get("location", target_location or "Remote")
+        location = search_terms.get("location", target_location or config.get('job_search.default_location', 'Remote'))
         google_search = search_terms.get("google_search_string", f"{search_term} jobs near {location}")
         
         logger.info(f"Executing job search - Term: '{search_term}', Location: '{location}'")
         
         # Perform job search
         jobs = scrape_jobs(
-            site_name=["indeed", "linkedin"],
+            site_name=config.get_job_search_sites(),
             search_term=search_term,
             google_search_term=google_search,
             location=location,
             results_wanted=results_wanted,
-            hours_old=72,
-            country_indeed='USA'
+            hours_old=config.get_job_hours_old(),
+            country_indeed=config.get('job_search.default_country', 'USA')
         )
         
         logger.info(f"Job search completed - Found {len(jobs)} jobs")
@@ -239,6 +246,8 @@ def search_jobs():
         
         # Convert jobs DataFrame to list of dictionaries for JSON response
         jobs_list = []
+        description_max_length = config.get('job_search.description_max_length', 500)
+        
         for i, job in jobs.iterrows():
             # Safely handle description field that might be float/NaN
             description = job.get('description', '')
@@ -255,7 +264,7 @@ def search_jobs():
                 'location': job.get('location', 'N/A'),
                 'site': job.get('site', 'N/A'),
                 'job_url': job.get('job_url', ''),
-                'description': description[:500] + '...' if description else '',
+                'description': description[:description_max_length] + '...' if description else '',
                 'salary_min': job.get('salary_min', ''),
                 'salary_max': job.get('salary_max', ''),
                 'date_posted': str(job.get('date_posted', ''))
@@ -355,7 +364,7 @@ def cleanup_files():
         data = request.get_json()
         cleanup_uploads = data.get('cleanup_uploads', False)
         cleanup_results = data.get('cleanup_results', False)
-        days_old = int(data.get('days_old', 7))
+        days_old = int(data.get('days_old', config.get('cleanup.default_days_old', 7)))
         
         deleted_count = 0
         cutoff_time = datetime.now().timestamp() - (days_old * 24 * 60 * 60)
@@ -422,8 +431,9 @@ def cleanup_file_on_error(filepath):
 
 @app.errorhandler(413)
 def too_large(e):
+    max_size_mb = config.get('files.max_file_size_mb', 16)
     logger.warning(f"File upload too large: {request.content_length} bytes")
-    flash('File is too large. Maximum size is 16MB.')
+    flash(f'File is too large. Maximum size is {max_size_mb}MB.')
     return redirect(url_for('index'))
 
 @app.errorhandler(404)
@@ -438,7 +448,7 @@ def internal_error(e):
 
 if __name__ == '__main__':
     # Check if OpenAI API key is set
-    if not os.getenv("OPENAI_API_KEY"):
+    if not config.get_openai_api_key():
         logger.warning("OPENAI_API_KEY not found in environment variables!")
         print("❌ Warning: OPENAI_API_KEY not found in environment variables!")
         print("Please set your OpenAI API key in the .env file")
@@ -450,4 +460,9 @@ if __name__ == '__main__':
     logger.info(f"Job results folder: {app.config['JOB_RESULTS_FOLDER']}")
     logger.info(f"Max content length: {app.config['MAX_CONTENT_LENGTH']} bytes")
     
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    app_config = config.app_config
+    app.run(
+        debug=app_config.get('debug', True), 
+        host=app_config.get('host', '0.0.0.0'), 
+        port=app_config.get('port', 5000)
+    ) 

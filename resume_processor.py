@@ -8,11 +8,13 @@ from openai import OpenAI
 from typing import List, Dict
 import PyPDF2
 from docx import Document
+from config_loader import get_config
 
 class ResumeProcessor:
-    def __init__(self, cache_dir: str = ".cache"):
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.cache_dir = Path(cache_dir)
+    def __init__(self, cache_dir: str = None):
+        self.config = get_config()
+        self.client = OpenAI(api_key=self.config.get_openai_api_key())
+        self.cache_dir = Path(cache_dir or self.config.get_cache_directory())
         self._ensure_cache_directory()
         
     def _ensure_cache_directory(self):
@@ -45,9 +47,10 @@ class ResumeProcessor:
             with open(cache_file, 'r', encoding='utf-8') as f:
                 cached_data = json.load(f)
             
-            # Check if cache is less than 7 days old
+            # Check if cache is expired
             cache_time = datetime.fromisoformat(cached_data.get('timestamp', ''))
-            if (datetime.now() - cache_time).days < 7:
+            expiration_days = self.config.get_cache_expiration_days()
+            if (datetime.now() - cache_time).days < expiration_days:
                 print(f"✅ Using cached response for {cache_key[:8]}...")
                 return cached_data.get('response', {})
             else:
@@ -83,6 +86,11 @@ class ResumeProcessor:
     def anonymize_resume(self, resume_content: str) -> str:
         """Remove or anonymize PII from resume content"""
         content = resume_content
+        
+        # Check if PII removal is enabled
+        if not self.config.get('resume_processing.pii_removal.enabled', True):
+            print("🛡️  PII removal disabled in configuration")
+            return content
         
         # Track what we're removing for debugging
         pii_removed = []
@@ -120,17 +128,23 @@ class ResumeProcessor:
                 content = re.sub(pattern, '[ADDRESS_REDACTED]', content)
                 pii_removed.append(f"{len(addresses_found)} address(es)")
         
-        # 4. Personal websites/portfolios (optional - might be relevant for job applications)
+        # 4. Personal websites/portfolios
         url_pattern = r'https?://(?:www\.)?[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:/[^\s]*)?'
         urls_found = re.findall(url_pattern, content)
         if urls_found:
-            # Only redact personal domains, keep professional ones like GitHub, LinkedIn
-            professional_domains = ['github.com', 'linkedin.com', 'stackoverflow.com']
-            for url in urls_found:
-                is_professional = any(domain in url.lower() for domain in professional_domains)
-                if not is_professional:
+            # Only redact personal domains if preserve_professional_urls is enabled
+            if self.config.get('resume_processing.pii_removal.preserve_professional_urls', True):
+                professional_domains = self.config.get_professional_domains()
+                for url in urls_found:
+                    is_professional = any(domain in url.lower() for domain in professional_domains)
+                    if not is_professional:
+                        content = content.replace(url, '[WEBSITE_REDACTED]')
+                pii_removed.append(f"{len([u for u in urls_found if not any(d in u.lower() for d in professional_domains)])} personal website(s)")
+            else:
+                # Redact all URLs
+                for url in urls_found:
                     content = content.replace(url, '[WEBSITE_REDACTED]')
-            pii_removed.append(f"{len([u for u in urls_found if not any(d in u.lower() for d in professional_domains)])} personal website(s)")
+                pii_removed.append(f"{len(urls_found)} website(s)")
         
         # 5. Names (more complex - try to identify the name at the top of resume)
         lines = content.split('\n')
@@ -217,12 +231,12 @@ class ResumeProcessor:
         
         try:
             response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model=self.config.get_openai_model(),
                 messages=[
                     {"role": "system", "content": "You are an expert HR professional and career counselor. Extract key information from resumes accurately and format it as requested. Note that some PII has been redacted for privacy."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3
+                temperature=self.config.get_openai_temperature()
             )
             
             content = response.choices[0].message.content
@@ -294,12 +308,12 @@ class ResumeProcessor:
         
         try:
             response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model=self.config.get_openai_model(),
                 messages=[
                     {"role": "system", "content": "You are an expert recruiter who understands how to optimize job search queries for maximum relevant results. When a desired position is specified, prioritize it while leveraging the candidate's existing skills."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3
+                temperature=self.config.get_openai_temperature()
             )
             
             content = response.choices[0].message.content
@@ -358,6 +372,8 @@ class ResumeProcessor:
             
             # Get detailed info about each cache file
             cache_file_details = []
+            expiration_days = self.config.get_cache_expiration_days()
+            
             for cache_file in cache_files:
                 try:
                     # Read the cache file to get timestamp and check if expired
@@ -365,7 +381,7 @@ class ResumeProcessor:
                         cache_data = json.load(f)
                     
                     created_time = datetime.fromisoformat(cache_data.get('timestamp', ''))
-                    is_expired = (datetime.now() - created_time).days > 7
+                    is_expired = (datetime.now() - created_time).days > expiration_days
                     
                     cache_file_details.append({
                         'key': cache_file.stem,  # filename without extension

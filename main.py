@@ -5,11 +5,17 @@ from jobspy import scrape_jobs
 from dotenv import load_dotenv
 import os
 from resume_processor import ResumeProcessor
+from config_loader import get_config
 
 load_dotenv()
+config = get_config()
 
-def test_resume_processing_pipeline(resume_file="sample_resume.txt", target_location=None, results_wanted=5, desired_position=None):
+def test_resume_processing_pipeline(resume_file="sample_resume.txt", target_location=None, results_wanted=None, desired_position=None):
     """Test the complete pipeline: resume -> keywords -> search terms -> job scraping"""
+    
+    # Use config defaults if not specified
+    if results_wanted is None:
+        results_wanted = config.get_default_job_results()
     
     # Initialize the resume processor
     processor = ResumeProcessor()
@@ -25,50 +31,54 @@ def test_resume_processing_pipeline(resume_file="sample_resume.txt", target_loca
     
     try:
         # Process the resume
-        results = processor.process_resume(resume_file, target_location, desired_position)
+        results = processor.process_resume(
+            resume_file, 
+            target_location=target_location,
+            desired_position=desired_position
+        )
         
-        print("\n" + "="*40)
-        print("EXTRACTED KEYWORDS:")
-        print("="*40)
-        print(json.dumps(results["keywords"], indent=2))
-        
-        print("\n" + "="*40)
-        print("GENERATED SEARCH TERMS:")
-        print("="*40)
-        print(json.dumps(results["search_terms"], indent=2))
-        
-        # Test job scraping with generated search terms
-        if "search_terms" in results and results["search_terms"]:
-            search_data = results["search_terms"]
+        if not results:
+            print("❌ Failed to process resume")
+            return None
             
-            # Use primary search term for job scraping test
-            primary_terms = search_data.get("primary_search_terms", ["software engineer"])
+        keywords_data = results["keywords"]
+        search_terms = results["search_terms"]
+        
+        print("\n" + "="*40)
+        print("EXTRACTED KEYWORDS")
+        print("="*40)
+        print(json.dumps(keywords_data, indent=2))
+        
+        print("\n" + "="*40)
+        print("GENERATED SEARCH TERMS") 
+        print("="*40)
+        print(json.dumps(search_terms, indent=2))
+        
+        # Use the search terms for job scraping
+        if search_terms:
+            primary_terms = search_terms.get("primary_search_terms", ["software engineer"])
             search_term = primary_terms[0] if primary_terms else "software engineer"
             
             # If desired position was specified, prioritize it in the search
             if desired_position and desired_position.lower() not in search_term.lower():
                 search_term = f"{desired_position} {search_term}".strip()
             
-            location = search_data.get("location", target_location or "Remote")
-            google_search = search_data.get("google_search_string", f"{search_term} jobs near {location}")
+            location = search_terms.get("location", target_location or config.get('job_search.default_location', 'Remote'))
+            google_search = search_terms.get("google_search_string", f"{search_term} jobs near {location}")
             
-            print("\n" + "="*40)
-            print("TESTING JOB SCRAPING:")
-            print("="*40)
+            print(f"\n🔍 Searching for jobs...")
             print(f"Search Term: {search_term}")
             print(f"Location: {location}")
             print(f"Google Search: {google_search}")
             
-            # Run a small test scrape
-            print("\nStarting job scrape...")
             jobs = scrape_jobs(
-                site_name=["indeed", "linkedin"],  # Limiting to 2 sites for testing
+                site_name=config.get_job_search_sites(),
                 search_term=search_term,
                 google_search_term=google_search,
                 location=location,
                 results_wanted=results_wanted,
-                hours_old=72,
-                country_indeed='USA'
+                hours_old=config.get_job_hours_old(),
+                country_indeed=config.get('job_search.default_country', 'USA')
             )
             
             print(f"\nFound {len(jobs)} jobs")
@@ -101,198 +111,146 @@ def test_resume_processing_pipeline(resume_file="sample_resume.txt", target_loca
         traceback.print_exc()
         return None
 
-def test_openai_connection():
-    """Test if OpenAI API is working"""
-    print("Testing OpenAI API connection...")
-    api_key = os.getenv("OPENAI_API_KEY")
-    
-    if not api_key:
-        print("❌ OPENAI_API_KEY not found in environment variables!")
-        return False
-    
-    print(f"✅ API Key found: {api_key[:10]}...{api_key[-5:]}")
+def simple_resume_test(resume_file="sample_resume.txt", target_location=None, desired_position=None):
+    """Simple test that only processes the resume without job scraping"""
+    print("="*50)
+    print("RESUME PROCESSING TEST (NO JOB SCRAPING)")
+    print("="*50)
     
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
-        
-        # Test with a simple completion
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": "Say 'API test successful'"}],
-            max_tokens=10
+        processor = ResumeProcessor()
+        results = processor.process_resume(
+            resume_file,
+            target_location=target_location,
+            desired_position=desired_position
         )
         
-        print(f"✅ OpenAI API test successful: {response.choices[0].message.content}")
-        return True
+        if results:
+            print("\n✅ Resume processing successful!")
+            print(f"Keywords extracted: {len(results.get('keywords', {}))}")
+            print(f"Search terms generated: {len(results.get('search_terms', {}))}")
+            print("\nKeywords:")
+            print(json.dumps(results.get("keywords", {}), indent=2))
+            print("\nSearch Terms:")
+            print(json.dumps(results.get("search_terms", {}), indent=2))
+        else:
+            print("❌ Resume processing failed")
+            
+        return results
         
     except Exception as e:
-        print(f"❌ OpenAI API test failed: {e}")
-        return False
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def show_cache_info():
+    """Display cache information"""
+    processor = ResumeProcessor()
+    cache_info = processor.get_cache_info()
+    
+    print("="*40)
+    print("CACHE INFORMATION")
+    print("="*40)
+    print(f"Cache Directory: {cache_info['cache_directory']}")
+    print(f"Cache Files: {cache_info['cache_files_count']}")
+    print(f"Total Size: {cache_info['total_size_mb']} MB")
+    print(f"Expiration: {config.get_cache_expiration_days()} days")
+    
+    if cache_info['cache_files']:
+        print("\nCache Files:")
+        for file_info in cache_info['cache_files']:
+            status = "EXPIRED" if file_info['is_expired'] else "VALID"
+            print(f"  {file_info['key'][:12]}... | {file_info['size_kb']} KB | {file_info['created']} | {status}")
+    
+    print("="*40)
+    return cache_info
+
+def clear_cache():
+    """Clear the cache"""
+    processor = ResumeProcessor()
+    processor.clear_cache()
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Resume-to-Job-Search Pipeline Test",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python main.py                                          # Use default sample_resume.txt
-  python main.py -r my_resume.pdf                        # Test with PDF resume
-  python main.py -r resume.docx -l "New York, NY"        # Specify location
-  python main.py -r resume.txt -l "Remote" -n 10         # Get 10 job results
-  python main.py -r resume.pdf -p "Data Scientist"       # Target specific position
-  python main.py -r resume.txt -p "Senior DevOps Engineer" -l "Austin, TX" -n 8
-  python main.py --test-api-only                         # Only test OpenAI connection
-  python main.py --cache-info                            # Show cache information
-  python main.py --clear-cache                           # Clear all cached responses
-        """
-    )
-    
-    parser.add_argument(
-        "-r", "--resume", 
-        type=str, 
-        default="sample_resume.txt",
-        help="Path to resume file (supports .txt, .pdf, .docx). Default: sample_resume.txt"
-    )
-    
-    parser.add_argument(
-        "-l", "--location", 
-        type=str, 
-        help="Target job location (overrides location from resume). Example: 'New York, NY' or 'Remote'"
-    )
-    
-    parser.add_argument(
-        "-p", "--position", 
-        type=str, 
-        help="Desired position/role to target (influences search term generation). Example: 'Data Scientist' or 'Senior Backend Engineer'"
-    )
-    
-    parser.add_argument(
-        "-n", "--num-jobs", 
-        type=int, 
-        default=5,
-        help="Number of job results to fetch for testing. Default: 5"
-    )
-    
-    parser.add_argument(
-        "--test-api-only", 
-        action="store_true",
-        help="Only test OpenAI API connection, don't run full pipeline"
-    )
-    
-    parser.add_argument(
-        "--skip-scraping", 
-        action="store_true",
-        help="Skip job scraping, only test resume processing and keyword extraction"
-    )
-    
-    parser.add_argument(
-        "--cache-info", 
-        action="store_true",
-        help="Show cache information and exit"
-    )
-    
-    parser.add_argument(
-        "--clear-cache", 
-        action="store_true",
-        help="Clear all cached responses and exit"
-    )
-    
-    parser.add_argument(
-        "--no-cache", 
-        action="store_true",
-        help="Disable caching for this run (forces fresh API calls)"
-    )
+    parser = argparse.ArgumentParser(description="SeekrAI - AI-powered resume processing and job search")
+    parser.add_argument("-r", "--resume", type=str, help="Path to resume file")
+    parser.add_argument("-p", "--position", type=str, help="Desired job position")
+    parser.add_argument("-l", "--location", type=str, help="Target location")
+    parser.add_argument("-n", "--num-jobs", type=int, help=f"Number of jobs to search (default: {config.get_default_job_results()})")
+    parser.add_argument("--skip-scraping", action="store_true", help="Skip job scraping, only process resume")
+    parser.add_argument("--cache-info", action="store_true", help="Show cache information")
+    parser.add_argument("--clear-cache", action="store_true", help="Clear the cache")
+    parser.add_argument("--no-cache", action="store_true", help="Force fresh API calls (bypass cache)")
+    parser.add_argument("--config-test", action="store_true", help="Test configuration loading")
     
     args = parser.parse_args()
     
-    # Handle cache management options
-    if args.cache_info or args.clear_cache:
-        processor = ResumeProcessor()
+    # Configuration test
+    if args.config_test:
+        print("="*50)
+        print("CONFIGURATION TEST")
+        print("="*50)
+        print(f"OpenAI Model: {config.get_openai_model()}")
+        print(f"OpenAI Temperature: {config.get_openai_temperature()}")
+        print(f"Cache Directory: {config.get_cache_directory()}")
+        print(f"Cache Expiration: {config.get_cache_expiration_days()} days")
+        print(f"Upload Folder: {config.get_upload_folder()}")
+        print(f"Max File Size: {config.get('files.max_file_size_mb', 16)} MB")
+        print(f"Allowed Extensions: {config.get_allowed_extensions()}")
+        print(f"Job Search Sites: {config.get_job_search_sites()}")
+        print(f"Default Job Results: {config.get_default_job_results()}")
+        print(f"Job Hours Old: {config.get_job_hours_old()}")
+        print(f"Professional Domains: {config.get_professional_domains()}")
+        print(f"PII Removal Enabled: {config.get('resume_processing.pii_removal.enabled', True)}")
+        print("="*50)
+        return
+    
+    # Cache operations
+    if args.cache_info:
+        show_cache_info()
+        return
         
-        if args.cache_info:
-            cache_info = processor.get_cache_info()
-            print("📊 Cache Information:")
-            print(f"   Cache directory: {cache_info['cache_dir']}")
-            print(f"   Cached files: {cache_info['cache_files']}")
-            print(f"   Total size: {cache_info['total_size']} bytes")
-            if cache_info['cache_files'] > 0:
-                print(f"   Average file size: {cache_info['total_size'] // cache_info['cache_files']} bytes")
+    if args.clear_cache:
+        clear_cache()
+        print("✅ Cache cleared")
+        return
+    
+    # Resume processing
+    if args.resume:
+        if not os.path.exists(args.resume):
+            print(f"❌ Resume file not found: {args.resume}")
             return
-        
-        if args.clear_cache:
-            processor.clear_cache()
-            print("✅ Cache cleared successfully!")
-            return
-    
-    # Check if resume file exists (skip for cache-only operations)
-    if not os.path.exists(args.resume):
-        print(f"❌ Resume file not found: {args.resume}")
-        print("Available files in current directory:")
-        for file in os.listdir("."):
-            if file.endswith((".txt", ".pdf", ".docx")):
-                print(f"  - {file}")
-        return
-    
-    # Test OpenAI connection first
-    if not test_openai_connection():
-        print("Please check your OpenAI API key and try again.")
-        return
-    
-    if args.test_api_only:
-        print("✅ API test completed successfully!")
-        return
-    
-    print("\n")
-    
-    # Initialize processor with cache settings
-    if args.no_cache:
-        print("⚠️  Running without cache - all API calls will be fresh")
-        # Create a temporary cache dir that we'll clear immediately
-        processor = ResumeProcessor(cache_dir=".temp_cache")
-        processor.clear_cache()
-    
-    # Run the complete pipeline test
-    if args.skip_scraping:
-        print("Note: Skipping job scraping as requested")
-        if not args.no_cache:
-            processor = ResumeProcessor()
-        try:
-            results = processor.process_resume(args.resume, args.location, args.position)
-            print("\n" + "="*40)
-            print("EXTRACTED KEYWORDS:")
-            print("="*40)
-            print(json.dumps(results["keywords"], indent=2))
             
-            print("\n" + "="*40)
-            print("GENERATED SEARCH TERMS:")
-            print("="*40)
-            print(json.dumps(results["search_terms"], indent=2))
-            print("\n✅ Resume processing completed successfully!")
-        except Exception as e:
-            print(f"❌ Error processing resume: {e}")
-        finally:
-            if args.no_cache:
-                processor.clear_cache()  # Clean up temp cache
+        if args.skip_scraping:
+            simple_resume_test(
+                resume_file=args.resume,
+                target_location=args.location,
+                desired_position=args.position
+            )
+        else:
+            test_resume_processing_pipeline(
+                resume_file=args.resume,
+                target_location=args.location,
+                results_wanted=args.num_jobs,
+                desired_position=args.position
+            )
     else:
-        test_resume_processing_pipeline(args.resume, args.location, args.num_jobs, args.position)
+        # Default test with sample resume if it exists
+        sample_resume = "sample_resume.txt"
+        if os.path.exists(sample_resume):
+            print("No resume specified, using sample_resume.txt")
+            test_resume_processing_pipeline(
+                resume_file=sample_resume,
+                target_location=args.location,
+                results_wanted=args.num_jobs,
+                desired_position=args.position
+            )
+        else:
+            print("❌ No resume file specified and sample_resume.txt not found")
+            print("Usage: python main.py -r <resume_file> [-p <position>] [-l <location>] [-n <num_jobs>]")
+            print("       python main.py --cache-info")
+            print("       python main.py --clear-cache")
+            print("       python main.py --config-test")
 
 if __name__ == "__main__":
     main()
-    
-    # Original job scraping code (commented out for reference)
-    # jobs = scrape_jobs(
-    #     site_name=["indeed", "linkedin", "zip_recruiter", "glassdoor", "google", "bayt", "naukri"],
-    #     search_term="software engineer",
-    #     google_search_term="software engineer jobs near St. Louis, MO since yesterday",
-    #     location="St. Louis, MO",
-    #     results_wanted=20,
-    #     hours_old=72,
-    #     country_indeed='USA',
-        
-    #     # linkedin_fetch_description=True # gets more info such as description, direct job url (slower)
-    #     # proxies=["208.195.175.46:65095", "208.195.175.45:65095", "localhost"],
-    # )
-    # print(f"Found {len(jobs)} jobs")
-    # print(jobs.head())
-    # jobs.to_csv("jobs.csv", quoting=csv.QUOTE_NONNUMERIC, escapechar="\\", index=False) # to_excel

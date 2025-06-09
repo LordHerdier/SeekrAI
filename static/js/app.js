@@ -4,6 +4,9 @@
 let currentUploadedFile = null;
 let jobSearchInProgress = false;
 
+// Get configuration
+const Config = window.SeekrAIConfig;
+
 // Document ready functions
 document.addEventListener('DOMContentLoaded', function() {
     initializeApp();
@@ -41,23 +44,17 @@ function initializeFileUpload() {
         if (!file) return;
         
         // Validate file type
-        const allowedTypes = [
-            'text/plain',
-            'application/pdf',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'application/msword'
-        ];
-        
-        if (!allowedTypes.includes(file.type)) {
-            showAlert('Please select a valid file type (PDF, Word, or Text)', 'danger');
+        if (!Config.isFileTypeAllowed(file.type)) {
+            showAlert(Config.getMessage('fileUpload.invalidType'), 'danger');
             e.target.value = '';
             return;
         }
         
-        // Validate file size (16MB limit)
-        const maxSize = 16 * 1024 * 1024; // 16MB in bytes
+        // Validate file size
+        const maxSize = Config.getMaxFileSizeBytes();
         if (file.size > maxSize) {
-            showAlert('File size must be less than 16MB', 'danger');
+            const maxSizeMB = Config.get('files.maxSizeMB', 16);
+            showAlert(Config.getMessage('fileUpload.tooLarge', { maxSize: maxSizeMB }), 'danger');
             e.target.value = '';
             return;
         }
@@ -111,15 +108,12 @@ function handleDrop(e) {
 }
 
 function showFileInfo(file) {
-    const fileSize = (file.size / 1024).toFixed(2) + ' KB';
-    if (file.size > 1024 * 1024) {
-        fileSize = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
-    }
+    const fileSize = Config.formatFileSize(file.size);
     
     const infoHtml = `
         <div class="alert alert-success mt-2" id="fileInfo">
             <i class="fas fa-check-circle me-2"></i>
-            <strong>${file.name}</strong> (${fileSize}) selected successfully
+            <strong>${file.name}</strong> (${fileSize}) ${Config.getMessage('fileUpload.success')}
         </div>
     `;
     
@@ -145,16 +139,18 @@ function initializeFormEnhancements() {
     });
     
     // Form validation enhancement
-    const forms = document.querySelectorAll('form');
-    forms.forEach(form => {
-        form.addEventListener('submit', function(e) {
-            if (!validateForm(this)) {
-                e.preventDefault();
-                e.stopPropagation();
-            }
-            this.classList.add('was-validated');
+    if (Config.get('validation.enableRealTimeValidation', true)) {
+        const forms = document.querySelectorAll('form');
+        forms.forEach(form => {
+            form.addEventListener('submit', function(e) {
+                if (!validateForm(this)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                this.classList.add('was-validated');
+            });
         });
-    });
+    }
 }
 
 function validateForm(form) {
@@ -194,7 +190,8 @@ function initializeUIEnhancements() {
         });
     });
     
-    // Auto-dismiss alerts after 5 seconds
+    // Auto-dismiss alerts after configured time
+    const autoDismissTime = Config.get('ui.autoDismissAlertsMs', 5000);
     setTimeout(() => {
         const alerts = document.querySelectorAll('.alert:not(.alert-permanent)');
         alerts.forEach(alert => {
@@ -203,10 +200,12 @@ function initializeUIEnhancements() {
                 setTimeout(() => alert.remove(), 500);
             }
         });
-    }, 5000);
+    }, autoDismissTime);
     
-    // Loading button states
+    // Loading button states with configurable timeout
     const loadingButtons = document.querySelectorAll('[data-loading-text]');
+    const buttonTimeout = Config.get('ui.loadingButtonTimeoutMs', 10000);
+    
     loadingButtons.forEach(button => {
         button.addEventListener('click', function() {
             const loadingText = this.getAttribute('data-loading-text');
@@ -215,11 +214,11 @@ function initializeUIEnhancements() {
             this.innerHTML = loadingText;
             this.disabled = true;
             
-            // Re-enable after 10 seconds as fallback
+            // Re-enable after configured timeout as fallback
             setTimeout(() => {
                 this.innerHTML = originalText;
                 this.disabled = false;
-            }, 10000);
+            }, buttonTimeout);
         });
     });
 }
@@ -252,22 +251,16 @@ function setLoadingState(element, loading = true) {
 }
 
 function formatFileSize(bytes) {
-    if (bytes === 0) return '0 Bytes';
-    
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return Config.formatFileSize(bytes);
 }
 
 function copyToClipboard(text) {
     if (navigator.clipboard) {
         navigator.clipboard.writeText(text).then(() => {
-            showAlert('Copied to clipboard!', 'success');
+            showAlert(Config.getMessage('fileUpload.copySuccess'), 'success');
         }).catch(err => {
             console.error('Failed to copy: ', err);
-            showAlert('Failed to copy to clipboard', 'danger');
+            showAlert(Config.getMessage('fileUpload.copyFailure'), 'danger');
         });
     } else {
         // Fallback for older browsers
@@ -278,10 +271,10 @@ function copyToClipboard(text) {
         
         try {
             document.execCommand('copy');
-            showAlert('Copied to clipboard!', 'success');
+            showAlert(Config.getMessage('fileUpload.copySuccess'), 'success');
         } catch (err) {
             console.error('Failed to copy: ', err);
-            showAlert('Failed to copy to clipboard', 'danger');
+            showAlert(Config.getMessage('fileUpload.copyFailure'), 'danger');
         }
         
         document.body.removeChild(textArea);
@@ -294,10 +287,11 @@ window.SeekrAI = {
     setLoadingState,
     formatFileSize,
     copyToClipboard,
-    validateForm
+    validateForm,
+    Config
 };
 
-// Add CSS for drag and drop styling
+// Add CSS for drag and drop styling with configurable colors
 const style = document.createElement('style');
 style.textContent = `
     .drag-over {
@@ -306,7 +300,7 @@ style.textContent = `
     }
     
     .fade-in {
-        animation: fadeIn 0.5s ease-in;
+        animation: fadeIn ${Config.get('animations.fadeInDuration', 500)}ms ease-in;
     }
     
     @keyframes fadeIn {
@@ -315,7 +309,7 @@ style.textContent = `
     }
     
     .slide-in {
-        animation: slideIn 0.3s ease-out;
+        animation: slideIn ${Config.get('animations.slideInDuration', 300)}ms ease-out;
     }
     
     @keyframes slideIn {
