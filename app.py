@@ -18,10 +18,22 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['JOB_RESULTS_FOLDER'] = 'job_results'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
-# Ensure upload directory exists
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+# Ensure required directories exist
+def ensure_directories():
+    """Create all required directories if they don't exist"""
+    directories = [
+        app.config['UPLOAD_FOLDER'],
+        app.config['JOB_RESULTS_FOLDER'],
+        'logs',
+        '.cache'
+    ]
+    for directory in directories:
+        os.makedirs(directory, exist_ok=True)
+
+ensure_directories()
 
 # Configure logging
 def setup_logging():
@@ -162,9 +174,7 @@ def upload_resume():
             logger.error(f"Error processing resume: {str(e)}", exc_info=True)
             flash(f'Error processing resume: {str(e)}')
             # Clean up uploaded file on error
-            if os.path.exists(filepath):
-                os.remove(filepath)
-                logger.info(f"Cleaned up uploaded file after error: {filepath}")
+            cleanup_file_on_error(filepath)
             return redirect(url_for('index'))
     
     else:
@@ -215,13 +225,17 @@ def search_jobs():
         
         logger.info(f"Job search completed - Found {len(jobs)} jobs")
         
-        # Save results to CSV
+        # Generate output filename and save to job results folder
         resume_name = os.path.splitext(filename.split('_', 1)[1] if '_' in filename else filename)[0]
         position_suffix = f"_{desired_position.replace(' ', '_').lower()}" if desired_position else ""
-        output_file = f"ai_generated_jobs_{resume_name}{position_suffix}.csv"
-        jobs.to_csv(output_file, quoting=csv.QUOTE_NONNUMERIC, escapechar="\\", index=False)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"jobs_{resume_name}{position_suffix}_{timestamp}.csv"
+        output_path = os.path.join(app.config['JOB_RESULTS_FOLDER'], output_filename)
         
-        logger.info(f"Job results saved to: {output_file}")
+        # Save results to CSV
+        jobs.to_csv(output_path, quoting=csv.QUOTE_NONNUMERIC, escapechar="\\", index=False)
+        
+        logger.info(f"Job results saved to: {output_path}")
         
         # Convert jobs DataFrame to list of dictionaries for JSON response
         jobs_list = []
@@ -258,7 +272,7 @@ def search_jobs():
                 'location': location,
                 'results_wanted': results_wanted
             },
-            'output_file': output_file
+            'output_file': output_filename
         })
         
     except Exception as e:
@@ -270,14 +284,114 @@ def search_jobs():
 
 @app.route('/download/<filename>')
 def download_file(filename):
-    """Download generated CSV file"""
+    """Download generated CSV file from job results folder"""
     logger.info(f"File download requested: {filename}")
     try:
-        return send_file(filename, as_attachment=True)
-    except FileNotFoundError:
-        logger.error(f"Download requested for non-existent file: {filename}")
-        flash('File not found')
+        # Security check: ensure filename doesn't have path traversal
+        safe_filename = secure_filename(filename)
+        file_path = os.path.join(app.config['JOB_RESULTS_FOLDER'], safe_filename)
+        
+        if not os.path.exists(file_path):
+            logger.error(f"Download requested for non-existent file: {file_path}")
+            flash('File not found')
+            return redirect(url_for('index'))
+        
+        return send_file(file_path, as_attachment=True)
+    except Exception as e:
+        logger.error(f"Error downloading file {filename}: {str(e)}")
+        flash('Error downloading file')
         return redirect(url_for('index'))
+
+@app.route('/files')
+def file_management():
+    """Display file management page with uploaded resumes and generated job results"""
+    logger.info("File management page requested")
+    
+    try:
+        # Get uploaded resumes
+        upload_files = []
+        if os.path.exists(app.config['UPLOAD_FOLDER']):
+            for file in os.listdir(app.config['UPLOAD_FOLDER']):
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], file)
+                if os.path.isfile(file_path):
+                    stat = os.stat(file_path)
+                    upload_files.append({
+                        'name': file,
+                        'size_mb': round(stat.st_size / (1024 * 1024), 2),
+                        'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                    })
+        
+        # Get job result files
+        result_files = []
+        if os.path.exists(app.config['JOB_RESULTS_FOLDER']):
+            for file in os.listdir(app.config['JOB_RESULTS_FOLDER']):
+                file_path = os.path.join(app.config['JOB_RESULTS_FOLDER'], file)
+                if os.path.isfile(file_path) and file.endswith('.csv'):
+                    stat = os.stat(file_path)
+                    result_files.append({
+                        'name': file,
+                        'size_mb': round(stat.st_size / (1024 * 1024), 2),
+                        'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                    })
+        
+        # Sort files by modification time (newest first)
+        upload_files.sort(key=lambda x: x['modified'], reverse=True)
+        result_files.sort(key=lambda x: x['modified'], reverse=True)
+        
+        return render_template('files.html', 
+                             upload_files=upload_files, 
+                             result_files=result_files)
+    except Exception as e:
+        logger.error(f"Error loading file management page: {str(e)}")
+        flash('Error loading file information')
+        return redirect(url_for('index'))
+
+@app.route('/cleanup_files', methods=['POST'])
+def cleanup_files():
+    """Clean up old files based on user selection"""
+    logger.info("File cleanup requested")
+    
+    try:
+        data = request.get_json()
+        cleanup_uploads = data.get('cleanup_uploads', False)
+        cleanup_results = data.get('cleanup_results', False)
+        days_old = int(data.get('days_old', 7))
+        
+        deleted_count = 0
+        cutoff_time = datetime.now().timestamp() - (days_old * 24 * 60 * 60)
+        
+        # Cleanup uploaded resumes
+        if cleanup_uploads and os.path.exists(app.config['UPLOAD_FOLDER']):
+            for file in os.listdir(app.config['UPLOAD_FOLDER']):
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], file)
+                if os.path.isfile(file_path) and os.path.getmtime(file_path) < cutoff_time:
+                    os.remove(file_path)
+                    deleted_count += 1
+                    logger.info(f"Deleted old upload file: {file}")
+        
+        # Cleanup job result files
+        if cleanup_results and os.path.exists(app.config['JOB_RESULTS_FOLDER']):
+            for file in os.listdir(app.config['JOB_RESULTS_FOLDER']):
+                file_path = os.path.join(app.config['JOB_RESULTS_FOLDER'], file)
+                if os.path.isfile(file_path) and os.path.getmtime(file_path) < cutoff_time:
+                    os.remove(file_path)
+                    deleted_count += 1
+                    logger.info(f"Deleted old result file: {file}")
+        
+        logger.info(f"File cleanup completed - {deleted_count} files deleted")
+        
+        return jsonify({
+            'success': True,
+            'deleted_count': deleted_count,
+            'message': f'Successfully deleted {deleted_count} files older than {days_old} days'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error during file cleanup: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/cache')
 def cache_info():
@@ -296,6 +410,15 @@ def clear_cache():
     logger.info("Cache cleared successfully")
     flash('Cache cleared successfully')
     return redirect(url_for('cache_info'))
+
+def cleanup_file_on_error(filepath):
+    """Clean up uploaded file when an error occurs"""
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            logger.info(f"Cleaned up uploaded file after error: {filepath}")
+    except Exception as e:
+        logger.error(f"Error cleaning up file {filepath}: {str(e)}")
 
 @app.errorhandler(413)
 def too_large(e):
@@ -324,6 +447,7 @@ if __name__ == '__main__':
     
     logger.info("Starting SeekrAI application")
     logger.info(f"Upload folder: {app.config['UPLOAD_FOLDER']}")
+    logger.info(f"Job results folder: {app.config['JOB_RESULTS_FOLDER']}")
     logger.info(f"Max content length: {app.config['MAX_CONTENT_LENGTH']} bytes")
     
     app.run(debug=True, host='0.0.0.0', port=5000) 
