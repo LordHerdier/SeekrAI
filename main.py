@@ -143,6 +143,8 @@ Examples:
   python main.py -r resume.pdf -p "Data Scientist"       # Target specific position
   python main.py -r resume.txt -p "Senior DevOps Engineer" -l "Austin, TX" -n 8
   python main.py --test-api-only                         # Only test OpenAI connection
+  python main.py --cache-info                            # Show cache information
+  python main.py --clear-cache                           # Clear all cached responses
         """
     )
     
@@ -184,9 +186,46 @@ Examples:
         help="Skip job scraping, only test resume processing and keyword extraction"
     )
     
+    parser.add_argument(
+        "--cache-info", 
+        action="store_true",
+        help="Show cache information and exit"
+    )
+    
+    parser.add_argument(
+        "--clear-cache", 
+        action="store_true",
+        help="Clear all cached responses and exit"
+    )
+    
+    parser.add_argument(
+        "--no-cache", 
+        action="store_true",
+        help="Disable caching for this run (forces fresh API calls)"
+    )
+    
     args = parser.parse_args()
     
-    # Check if resume file exists
+    # Handle cache management options
+    if args.cache_info or args.clear_cache:
+        processor = ResumeProcessor()
+        
+        if args.cache_info:
+            cache_info = processor.get_cache_info()
+            print("📊 Cache Information:")
+            print(f"   Cache directory: {cache_info['cache_dir']}")
+            print(f"   Cached files: {cache_info['cache_files']}")
+            print(f"   Total size: {cache_info['total_size']} bytes")
+            if cache_info['cache_files'] > 0:
+                print(f"   Average file size: {cache_info['total_size'] // cache_info['cache_files']} bytes")
+            return
+        
+        if args.clear_cache:
+            processor.clear_cache()
+            print("✅ Cache cleared successfully!")
+            return
+    
+    # Check if resume file exists (skip for cache-only operations)
     if not os.path.exists(args.resume):
         print(f"❌ Resume file not found: {args.resume}")
         print("Available files in current directory:")
@@ -206,10 +245,18 @@ Examples:
     
     print("\n")
     
+    # Initialize processor with cache settings
+    if args.no_cache:
+        print("⚠️  Running without cache - all API calls will be fresh")
+        # Create a temporary cache dir that we'll clear immediately
+        processor = ResumeProcessor(cache_dir=".temp_cache")
+        processor.clear_cache()
+    
     # Run the complete pipeline test
     if args.skip_scraping:
         print("Note: Skipping job scraping as requested")
-        processor = ResumeProcessor()
+        if not args.no_cache:
+            processor = ResumeProcessor()
         try:
             results = processor.process_resume(args.resume, args.location, args.position)
             print("\n" + "="*40)
@@ -224,6 +271,9 @@ Examples:
             print("\n✅ Resume processing completed successfully!")
         except Exception as e:
             print(f"❌ Error processing resume: {e}")
+        finally:
+            if args.no_cache:
+                processor.clear_cache()  # Clean up temp cache
     else:
         test_resume_processing_pipeline(args.resume, args.location, args.num_jobs, args.position)
 
