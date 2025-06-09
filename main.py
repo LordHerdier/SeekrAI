@@ -1,5 +1,6 @@
 import csv
 import json
+import argparse
 from jobspy import scrape_jobs
 from dotenv import load_dotenv
 import os
@@ -7,18 +8,18 @@ from resume_processor import ResumeProcessor
 
 load_dotenv()
 
-def test_resume_processing_pipeline():
+def test_resume_processing_pipeline(resume_file="sample_resume.txt", target_location=None, results_wanted=5):
     """Test the complete pipeline: resume -> keywords -> search terms -> job scraping"""
     
     # Initialize the resume processor
     processor = ResumeProcessor()
     
-    # Test with our sample resume
-    resume_file = "sample_resume.txt"
-    target_location = "St. Louis, MO"  # You can change this or make it None to use resume location
-    
     print("="*60)
     print("TESTING RESUME PROCESSING PIPELINE")
+    print("="*60)
+    print(f"Resume File: {resume_file}")
+    print(f"Target Location: {target_location or 'From resume'}")
+    print(f"Job Results Limit: {results_wanted}")
     print("="*60)
     
     try:
@@ -43,7 +44,7 @@ def test_resume_processing_pipeline():
             primary_terms = search_data.get("primary_search_terms", ["software engineer"])
             search_term = primary_terms[0] if primary_terms else "software engineer"
             
-            location = search_data.get("location", target_location)
+            location = search_data.get("location", target_location or "Remote")
             google_search = search_data.get("google_search_string", f"{search_term} jobs near {location}")
             
             print("\n" + "="*40)
@@ -60,7 +61,7 @@ def test_resume_processing_pipeline():
                 search_term=search_term,
                 google_search_term=google_search,
                 location=location,
-                results_wanted=5,  # Small number for testing
+                results_wanted=results_wanted,
                 hours_old=72,
                 country_indeed='USA'
             )
@@ -69,15 +70,16 @@ def test_resume_processing_pipeline():
             if len(jobs) > 0:
                 print("\nFirst few job results:")
                 print("-" * 40)
-                for i, job in jobs.head(3).iterrows():
+                for i, job in jobs.head(min(3, len(jobs))).iterrows():
                     print(f"Title: {job.get('title', 'N/A')}")
                     print(f"Company: {job.get('company', 'N/A')}")
                     print(f"Location: {job.get('location', 'N/A')}")
                     print(f"Site: {job.get('site', 'N/A')}")
                     print("-" * 40)
                 
-                # Save results
-                output_file = "ai_generated_jobs.csv"
+                # Save results with resume-specific filename
+                resume_name = os.path.splitext(os.path.basename(resume_file))[0]
+                output_file = f"ai_generated_jobs_{resume_name}.csv"
                 jobs.to_csv(output_file, quoting=csv.QUOTE_NONNUMERIC, escapechar="\\", index=False)
                 print(f"\nResults saved to {output_file}")
                 
@@ -85,10 +87,13 @@ def test_resume_processing_pipeline():
         print("PIPELINE TEST COMPLETED SUCCESSFULLY!")
         print("="*60)
         
+        return results
+        
     except Exception as e:
         print(f"Error in pipeline: {e}")
         import traceback
         traceback.print_exc()
+        return None
 
 def test_openai_connection():
     """Test if OpenAI API is working"""
@@ -119,15 +124,98 @@ def test_openai_connection():
         print(f"❌ OpenAI API test failed: {e}")
         return False
 
-if __name__ == "__main__":
+def main():
+    parser = argparse.ArgumentParser(
+        description="Resume-to-Job-Search Pipeline Test",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python main.py                                          # Use default sample_resume.txt
+  python main.py -r my_resume.pdf                        # Test with PDF resume
+  python main.py -r resume.docx -l "New York, NY"        # Specify location
+  python main.py -r resume.txt -l "Remote" -n 10         # Get 10 job results
+  python main.py --test-api-only                         # Only test OpenAI connection
+        """
+    )
+    
+    parser.add_argument(
+        "-r", "--resume", 
+        type=str, 
+        default="sample_resume.txt",
+        help="Path to resume file (supports .txt, .pdf, .docx). Default: sample_resume.txt"
+    )
+    
+    parser.add_argument(
+        "-l", "--location", 
+        type=str, 
+        help="Target job location (overrides location from resume). Example: 'New York, NY' or 'Remote'"
+    )
+    
+    parser.add_argument(
+        "-n", "--num-jobs", 
+        type=int, 
+        default=5,
+        help="Number of job results to fetch for testing. Default: 5"
+    )
+    
+    parser.add_argument(
+        "--test-api-only", 
+        action="store_true",
+        help="Only test OpenAI API connection, don't run full pipeline"
+    )
+    
+    parser.add_argument(
+        "--skip-scraping", 
+        action="store_true",
+        help="Skip job scraping, only test resume processing and keyword extraction"
+    )
+    
+    args = parser.parse_args()
+    
+    # Check if resume file exists
+    if not os.path.exists(args.resume):
+        print(f"❌ Resume file not found: {args.resume}")
+        print("Available files in current directory:")
+        for file in os.listdir("."):
+            if file.endswith((".txt", ".pdf", ".docx")):
+                print(f"  - {file}")
+        return
+    
     # Test OpenAI connection first
-    if test_openai_connection():
-        print("\n")
-        # Run the complete pipeline test
-        test_resume_processing_pipeline()
-    else:
+    if not test_openai_connection():
         print("Please check your OpenAI API key and try again.")
-        
+        return
+    
+    if args.test_api_only:
+        print("✅ API test completed successfully!")
+        return
+    
+    print("\n")
+    
+    # Run the complete pipeline test
+    if args.skip_scraping:
+        print("Note: Skipping job scraping as requested")
+        processor = ResumeProcessor()
+        try:
+            results = processor.process_resume(args.resume, args.location)
+            print("\n" + "="*40)
+            print("EXTRACTED KEYWORDS:")
+            print("="*40)
+            print(json.dumps(results["keywords"], indent=2))
+            
+            print("\n" + "="*40)
+            print("GENERATED SEARCH TERMS:")
+            print("="*40)
+            print(json.dumps(results["search_terms"], indent=2))
+            print("\n✅ Resume processing completed successfully!")
+        except Exception as e:
+            print(f"❌ Error processing resume: {e}")
+    else:
+        test_resume_processing_pipeline(args.resume, args.location, args.num_jobs)
+
+if __name__ == "__main__":
+    main()
+    
     # Original job scraping code (commented out for reference)
     # jobs = scrape_jobs(
     #     site_name=["indeed", "linkedin", "zip_recruiter", "glassdoor", "google", "bayt", "naukri"],

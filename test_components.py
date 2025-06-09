@@ -5,18 +5,20 @@ This helps debug each part separately.
 """
 
 import json
+import argparse
+import os
 from dotenv import load_dotenv
 from resume_processor import ResumeProcessor
 
 load_dotenv()
 
-def test_resume_reading():
+def test_resume_reading(resume_file):
     """Test just the resume reading functionality"""
-    print("Testing resume reading...")
+    print(f"Testing resume reading: {resume_file}")
     processor = ResumeProcessor()
     
     try:
-        content = processor.read_resume_file("sample_resume.txt")
+        content = processor.read_resume_file(resume_file)
         print(f"✅ Resume loaded successfully ({len(content)} characters)")
         print("First 200 characters:")
         print("-" * 40)
@@ -26,13 +28,13 @@ def test_resume_reading():
         print(f"❌ Resume reading failed: {e}")
         return False
 
-def test_keyword_extraction():
+def test_keyword_extraction(resume_file):
     """Test just the keyword extraction"""
-    print("\nTesting keyword extraction...")
+    print(f"\nTesting keyword extraction: {resume_file}")
     processor = ResumeProcessor()
     
     try:
-        content = processor.read_resume_file("sample_resume.txt")
+        content = processor.read_resume_file(resume_file)
         keywords = processor.extract_keywords(content)
         
         print("✅ Keywords extracted successfully:")
@@ -42,13 +44,13 @@ def test_keyword_extraction():
         print(f"❌ Keyword extraction failed: {e}")
         return None
 
-def test_search_term_generation(keywords_data):
+def test_search_term_generation(keywords_data, target_location):
     """Test search term generation with sample keywords"""
-    print("\nTesting search term generation...")
+    print(f"\nTesting search term generation (location: {target_location})...")
     processor = ResumeProcessor()
     
     try:
-        search_terms = processor.generate_search_terms(keywords_data, "St. Louis, MO")
+        search_terms = processor.generate_search_terms(keywords_data, target_location)
         
         print("✅ Search terms generated successfully:")
         print(json.dumps(search_terms, indent=2))
@@ -57,23 +59,26 @@ def test_search_term_generation(keywords_data):
         print(f"❌ Search term generation failed: {e}")
         return None
 
-def run_component_tests():
+def run_component_tests(resume_file, target_location):
     """Run all component tests individually"""
     print("="*50)
     print("COMPONENT-BY-COMPONENT TESTING")
     print("="*50)
+    print(f"Resume File: {resume_file}")
+    print(f"Target Location: {target_location or 'From resume'}")
+    print("="*50)
     
     # Test 1: Resume reading
-    if not test_resume_reading():
+    if not test_resume_reading(resume_file):
         return
     
     # Test 2: Keyword extraction
-    keywords = test_keyword_extraction()
+    keywords = test_keyword_extraction(resume_file)
     if not keywords:
         return
     
     # Test 3: Search term generation
-    search_terms = test_search_term_generation(keywords)
+    search_terms = test_search_term_generation(keywords, target_location)
     if not search_terms:
         return
     
@@ -86,8 +91,47 @@ def run_component_tests():
         "search_terms": search_terms
     }
 
-if __name__ == "__main__":
-    results = run_component_tests()
+def main():
+    parser = argparse.ArgumentParser(
+        description="Test individual components of the resume processing pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python test_components.py                               # Use default sample_resume.txt
+  python test_components.py -r my_resume.pdf             # Test with PDF resume
+  python test_components.py -r resume.docx -l "Remote"   # Test with location override
+        """
+    )
+    
+    parser.add_argument(
+        "-r", "--resume", 
+        type=str, 
+        default="sample_resume.txt",
+        help="Path to resume file (supports .txt, .pdf, .docx). Default: sample_resume.txt"
+    )
+    
+    parser.add_argument(
+        "-l", "--location", 
+        type=str, 
+        help="Target job location for search term generation. Example: 'New York, NY' or 'Remote'"
+    )
+    
+    args = parser.parse_args()
+    
+    # Check if resume file exists
+    if not os.path.exists(args.resume):
+        print(f"❌ Resume file not found: {args.resume}")
+        print("Available files in current directory:")
+        for file in os.listdir("."):
+            if file.endswith((".txt", ".pdf", ".docx")):
+                print(f"  - {file}")
+        return
+    
+    results = run_component_tests(args.resume, args.location)
     
     if results:
-        print("\nYou can now run the full pipeline with: python main.py") 
+        print(f"\nYou can now run the full pipeline with:")
+        print(f"python main.py -r {args.resume}" + (f" -l \"{args.location}\"" if args.location else ""))
+
+if __name__ == "__main__":
+    main() 

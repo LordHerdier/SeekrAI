@@ -103,7 +103,7 @@ class ResumeProcessor:
 
         Please generate the following search parameters in JSON format:
         1. Primary search terms (2-3 most relevant job titles/roles)
-        2. Secondary search terms (broader terms that might capture relevant jobs)
+        2. Secondary search terms (broader terms that might be relevant to the applicant)
         3. Skills-based search terms (combinations of key technical skills)
         4. Suggested location (use target_location if provided, otherwise extract from resume)
         5. Experience level filter suggestions
