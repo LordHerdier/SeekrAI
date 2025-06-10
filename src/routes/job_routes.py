@@ -274,6 +274,40 @@ def perform_simple_job_search(search_terms, desired_position, target_location, r
         if len(jobs) > results_wanted:
             jobs = jobs.head(results_wanted)
         
+        # Job Analysis for simple search too
+        jobs_analyzed = False
+        analysis_summary = None
+        
+        if config.get_job_analysis_enabled() and len(jobs) > 0:
+            try:
+                # Initialize processor for job analysis
+                processor = ResumeProcessor()
+                
+                # Convert jobs DataFrame to list of dictionaries
+                jobs_list = jobs.to_dict('records')
+                
+                # Analyze jobs using the full method (which includes sorting)
+                analyzed_jobs_list = processor.analyze_and_rank_jobs(jobs_list, keywords, max_jobs=results_wanted)
+                
+                # Convert back to DataFrame
+                jobs = pd.DataFrame(analyzed_jobs_list)
+                jobs_analyzed = True
+                
+                analyzed_count = sum(1 for job in analyzed_jobs_list if job.get('analyzed', False))
+                salary_extracted_count = sum(1 for job in analyzed_jobs_list 
+                                           if job.get('salary_min_extracted') or job.get('salary_max_extracted'))
+                
+                analysis_summary = {
+                    'analyzed_count': analyzed_count,
+                    'total_count': len(analyzed_jobs_list),
+                    'salary_extracted_count': salary_extracted_count
+                }
+                
+                logging.info(f"Simple search analysis completed - {analyzed_count} jobs analyzed")
+                
+            except Exception as e:
+                logging.error(f"Error during simple search job analysis: {str(e)}", exc_info=True)
+        
         # Generate output filename and save results
         output_filename = generate_output_filename(filename, desired_position)
         output_path = os.path.join(job_results_folder, output_filename)
@@ -292,8 +326,9 @@ def perform_simple_job_search(search_terms, desired_position, target_location, r
                 'results_wanted': results_wanted
             },
             'output_file': output_filename,
-            'analysis_enabled': False,
-            'jobs_analyzed': False
+            'analysis_enabled': config.get_job_analysis_enabled(),
+            'jobs_analyzed': jobs_analyzed,
+            'analysis_summary': analysis_summary
         })
         
     except Exception as e:
@@ -501,6 +536,16 @@ def analyze_jobs_with_progress(job_id, processor, jobs_list, keywords, batch_siz
         # Small delay to make progress visible and be nice to APIs
         import time
         time.sleep(0.1)
+    
+    # Sort by similarity score (highest first) if similarity ranking is enabled
+    config = get_config()
+    if config.get_similarity_ranking_enabled():
+        original_order = [job.get('similarity_score', 0) for job in analyzed_jobs[:5]]  # Log first 5 for comparison
+        analyzed_jobs.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
+        new_order = [job.get('similarity_score', 0) for job in analyzed_jobs[:5]]
+        logging.info("Jobs ranked by similarity score")
+        logging.debug(f"Top 5 similarity scores before sorting: {original_order}")
+        logging.debug(f"Top 5 similarity scores after sorting: {new_order}")
     
     # Final batch update
     update_job_progress(job_id, 'analyzing', 95, 'Analysis completed!',

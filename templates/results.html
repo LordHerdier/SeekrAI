@@ -47,6 +47,77 @@
     border-left: 3px solid #007bff;
     padding-left: 8px;
 }
+
+/* Fullscreen styles for job results */
+.job-results-fullscreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 9999 !important;
+    background: white !important;
+    padding: 20px !important;
+    overflow-y: auto !important;
+    box-shadow: none !important;
+}
+
+.job-results-fullscreen .card-body {
+    max-height: calc(100vh - 150px) !important;
+    padding: 15px !important;
+}
+
+.job-results-fullscreen .card-header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 10 !important;
+    border-radius: 0 !important;
+}
+
+.job-results-fullscreen .card-footer {
+    position: sticky !important;
+    bottom: 0 !important;
+    z-index: 10 !important;
+    border-radius: 0 !important;
+    background: white !important;
+    border-top: 1px solid #dee2e6 !important;
+}
+
+/* Fullscreen transition animation */
+.job-results-container {
+    transition: all 0.3s ease-in-out;
+}
+
+/* Hide other content when in fullscreen */
+.fullscreen-active .col-md-6:not(.job-results-column) {
+    display: none !important;
+}
+
+.fullscreen-active .job-results-column {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+/* Fullscreen toggle button styling */
+.fullscreen-toggle {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.1rem;
+    padding: 5px 10px;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+}
+
+.fullscreen-toggle:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+    color: white;
+}
+
+.fullscreen-toggle:focus {
+    outline: 2px solid rgba(255, 255, 255, 0.5);
+    outline-offset: 2px;
+}
 </style>
 
 <div class="row">
@@ -221,7 +292,7 @@
     </div>
 
     <!-- Right Column: Job Search -->
-    <div class="col-md-6">
+    <div class="col-md-6 job-results-column">
         <!-- Job Search Form -->
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-primary text-white">
@@ -253,13 +324,18 @@
         </div>
 
         <!-- Job Results -->
-        <div id="jobResults" class="d-none">
+        <div id="jobResults" class="d-none job-results-container">
             <div class="card shadow-sm">
                 <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
-                    <h5 class="card-title mb-0">
-                        <i class="fas fa-briefcase me-2"></i>Job Results
-                    </h5>
-                    <span id="resultsCount" class="badge bg-light text-dark"></span>
+                    <div class="d-flex align-items-center">
+                        <h5 class="card-title mb-0 me-3">
+                            <i class="fas fa-briefcase me-2"></i>Job Results
+                        </h5>
+                        <span id="resultsCount" class="badge bg-light text-dark"></span>
+                    </div>
+                    <button id="fullscreenToggle" class="fullscreen-toggle" title="Toggle Fullscreen" aria-label="Toggle fullscreen view">
+                        <i class="fas fa-expand" id="fullscreenIcon"></i>
+                    </button>
                 </div>
                 <div class="card-body" id="jobsList" style="max-height: 600px; overflow-y: auto;">
                     <!-- Job results will be populated here -->
@@ -745,6 +821,49 @@ function displayJobResults(data) {
     }
 
     resultsDiv.classList.remove('d-none');
+    // Initialize fullscreen functionality after displaying results
+    initializeFullscreenToggle();
+}
+
+// Fullscreen functionality
+let isFullscreen = false;
+
+function initializeFullscreenToggle() {
+    const fullscreenToggle = document.getElementById('fullscreenToggle');
+    const fullscreenIcon = document.getElementById('fullscreenIcon');
+    const jobResults = document.getElementById('jobResults');
+    const body = document.body;
+
+    if (!fullscreenToggle || !jobResults) return;
+
+    fullscreenToggle.addEventListener('click', function() {
+        toggleFullscreen();
+    });
+
+    // Add keyboard shortcut (Escape to exit fullscreen)
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape' && isFullscreen) {
+            toggleFullscreen();
+        }
+    });
+
+    function toggleFullscreen() {
+        if (isFullscreen) {
+            // Exit fullscreen
+            jobResults.classList.remove('job-results-fullscreen');
+            body.classList.remove('fullscreen-active');
+            fullscreenIcon.className = 'fas fa-expand';
+            fullscreenToggle.title = 'Enter Fullscreen';
+            isFullscreen = false;
+        } else {
+            // Enter fullscreen
+            jobResults.classList.add('job-results-fullscreen');
+            body.classList.add('fullscreen-active');
+            fullscreenIcon.className = 'fas fa-compress';
+            fullscreenToggle.title = 'Exit Fullscreen';
+            isFullscreen = true;
+        }
+    }
 }
 </script>
 {% endblock %}
