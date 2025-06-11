@@ -219,7 +219,6 @@ Icon
 
 # AI API response cache files
 *.cache
-cache_* 
 
 # Resume files
 *.txt
