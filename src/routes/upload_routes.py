@@ -1,3 +1,9 @@
+"""
+upload_routes.py
+
+Defines a Flask blueprint for handling resume uploads, saving files,
+processing them via ResumeProcessor, and cleaning up on errors.
+"""
 import os
 from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash
@@ -9,11 +15,30 @@ import logging
 upload_bp = Blueprint('upload', __name__)
 
 def allowed_file(filename, allowed_extensions):
-    """Check if file has allowed extension"""
+    """Determines whether a filename has an allowed extension.
+
+    Args:
+        filename (str): The name of the file to check.
+        allowed_extensions (set[str]): Allowed extensions (without leading dot).
+
+    Returns:
+        bool: True if `filename` contains an extension and it is in
+            `allowed_extensions`, False otherwise.
+    """
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
 
 def cleanup_file_on_error(filepath):
-    """Clean up uploaded file if processing fails"""
+    """Removes the given file if it exists, logging success or failure.
+
+    This is typically called when resume processing blows up and
+    you don’t want orphaned uploads lying around.
+
+    Args:
+        filepath (str): Full path to the file to delete.
+
+    Returns:
+        None
+    """
     try:
         if os.path.exists(filepath):
             os.remove(filepath)
@@ -23,13 +48,36 @@ def cleanup_file_on_error(filepath):
 
 @upload_bp.route('/')
 def index():
-    """Main page with upload form"""
+    """Renders the main upload page.
+
+    Returns:
+        flask.wrappers.Response: Rendered `index.html` template
+        containing the resume upload form.
+    """
     logging.info("Serving main page")
     return render_template('index.html')
 
 @upload_bp.route('/upload', methods=['POST'])
 def upload_resume():
-    """Handle resume upload and initial processing"""
+    """Handles an uploaded resume file and kicks off processing.
+
+    - Validates presence and extension of the uploaded file.
+    - Saves it with a timestamped, secure filename.
+    - Extracts `desired_position` and `target_location` from the form.
+    - Invokes `ResumeProcessor.process_resume`.
+    - On success, renders `results.html` with keywords/search terms.
+    - On failure, logs the error, cleans up, flashes a message, and redirects
+      back to the upload form.
+
+    Returns:
+        flask.wrappers.Response:
+            - On success: rendered `results.html` with `data` dict.
+            - On missing file or invalid type: redirect back to upload page.
+            - On processing error: redirect to index with an error flash.
+
+    Raises:
+        None: All exceptions during processing are caught and handled internally.
+    """
     from flask import current_app
     
     logging.info("Resume upload request received")
