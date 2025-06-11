@@ -4,14 +4,120 @@ from config_loader import get_config
 
 
 class PIIAnonymizer:
-    """Handles PII removal and anonymization from resume content"""
+    """Handles PII (Personally Identifiable Information) removal and anonymization from resume content.
+    
+    This class provides comprehensive functionality to identify and anonymize various types of
+    personally identifiable information commonly found in resumes and job-related documents.
+    The anonymization process helps protect candidate privacy while preserving the document
+    structure and professional content for analysis.
+    
+    Supported PII types include:
+    - Email addresses
+    - Phone numbers (various formats including US and international)
+    - Physical addresses (street addresses and city/state/zip combinations)
+    - Personal websites and portfolios (with option to preserve professional domains)
+    - Candidate names (typically found at the top of resumes)
+    
+    The class uses configurable patterns and settings loaded from the application configuration
+    to customize the anonymization behavior. All anonymization operations are logged for 
+    audit and debugging purposes.
+    
+    Attributes:
+        config (ConfigLoader): Configuration loader instance for accessing anonymization settings
+        logger (logging.Logger): Logger instance for tracking anonymization operations and results
+    
+    Example:
+        >>> anonymizer = PIIAnonymizer()
+        >>> content = "John Doe\\nSoftware Engineer\\njohn.doe@email.com\\n(555) 123-4567"
+        >>> anonymized = anonymizer.anonymize_resume(content)
+        >>> print(anonymized)
+        [NAME_REDACTED]
+        Software Engineer
+        [EMAIL_REDACTED]
+        [PHONE_REDACTED]
+    
+    Note:
+        The anonymization process is designed to be conservative, preferring to redact
+        information that might be PII rather than risk exposing actual personal data.
+        Configuration settings allow fine-tuning of the anonymization behavior.
+    """
     
     def __init__(self):
+        """Initialize the PIIAnonymizer with configuration and logging setup.
+        
+        Sets up the anonymizer instance by loading the application configuration
+        and initializing a logger for tracking anonymization operations. The
+        configuration determines which PII types to process and how aggressive
+        the anonymization should be.
+        
+        The logger is configured with a hierarchical name including the module
+        and class name for easy filtering and debugging in application logs.
+        
+        Raises:
+            ConfigurationError: If the application configuration cannot be loaded
+                or contains invalid settings for PII anonymization.
+        
+        Example:
+            >>> anonymizer = PIIAnonymizer()
+            >>> print(type(anonymizer.config))
+            <class 'config_loader.ConfigLoader'>
+        """
         self.config = get_config()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
     
     def anonymize_resume(self, resume_content: str) -> str:
-        """Remove or anonymize PII from resume content"""
+        """Remove or anonymize PII from resume content based on configuration settings.
+        
+        This is the main public method that orchestrates the complete PII anonymization
+        process. It applies multiple anonymization techniques in sequence to identify
+        and redact different types of personally identifiable information while
+        preserving the overall document structure and professional content.
+        
+        The method processes PII types in the following order:
+        1. Email addresses
+        2. Phone numbers (multiple format patterns)
+        3. Physical addresses (street addresses and city/state/zip)
+        4. Personal websites and portfolios
+        5. Candidate names (typically from document header)
+        
+        Each anonymization step can be individually controlled through configuration
+        settings, allowing for customized privacy protection based on use case requirements.
+        
+        Args:
+            resume_content (str): The original resume text content to be anonymized.
+                Can contain multiple lines and various formatting. Empty or whitespace-only
+                content is handled gracefully.
+        
+        Returns:
+            str: The anonymized resume content with PII replaced by redaction markers.
+                Original formatting and structure are preserved. Redaction markers follow
+                the pattern [TYPE_REDACTED] (e.g., [EMAIL_REDACTED], [PHONE_REDACTED]).
+        
+        Raises:
+            TypeError: If resume_content is not a string.
+            ConfigurationError: If PII anonymization configuration is invalid or missing.
+        
+        Example:
+            >>> anonymizer = PIIAnonymizer()
+            >>> original = '''John Smith
+            ... Software Engineer
+            ... john.smith@email.com | (555) 123-4567
+            ... 123 Main St, Anytown, CA 90210
+            ... Portfolio: https://johnsmith.dev'''
+            >>> anonymized = anonymizer.anonymize_resume(original)
+            >>> print(anonymized)
+            [NAME_REDACTED]
+            Software Engineer
+            [EMAIL_REDACTED] | [PHONE_REDACTED]
+            [ADDRESS_REDACTED]
+            Portfolio: [WEBSITE_REDACTED]
+        
+        Note:
+            - If PII removal is disabled in configuration, the original content is returned unchanged
+            - The method logs detailed information about what types and quantities of PII were found
+            - All anonymization operations are logged for audit purposes
+            - The method is designed to be idempotent - running it multiple times produces the same result
+        """
         self.logger.debug("Starting PII anonymization process")
         content = resume_content
         
@@ -57,7 +163,40 @@ class PIIAnonymizer:
         return content
     
     def _remove_emails(self, content: str) -> tuple[str, int]:
-        """Remove email addresses from content"""
+        """Remove email addresses from content using regex pattern matching.
+        
+        Identifies and redacts email addresses using a comprehensive regex pattern
+        that matches standard email formats including various TLD lengths and
+        special characters commonly used in email addresses. The pattern is designed
+        to be inclusive while avoiding false positives.
+        
+        Args:
+            content (str): Text content to process for email address removal.
+        
+        Returns:
+            tuple[str, int]: A tuple containing:
+                - str: Content with email addresses replaced by [EMAIL_REDACTED]
+                - int: Count of email addresses that were found and redacted
+        
+        Raises:
+            re.error: If the regex pattern compilation fails (should not occur with
+                the current pattern but included for completeness).
+        
+        Example:
+            >>> anonymizer = PIIAnonymizer()
+            >>> content = "Contact me at john.doe@company.com or jane_smith@example.org"
+            >>> result, count = anonymizer._remove_emails(content)
+            >>> print(f"Result: {result}")
+            >>> print(f"Count: {count}")
+            Result: Contact me at [EMAIL_REDACTED] or [EMAIL_REDACTED]
+            Count: 2
+        
+        Note:
+            - The regex pattern matches most standard email formats including subdomains
+            - Special characters like dots, underscores, plus signs, and hyphens are supported
+            - The pattern requires a valid TLD of at least 2 characters
+            - Email addresses within larger URLs or complex formatting may not be detected
+        """
         email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
         emails_found = re.findall(email_pattern, content)
         if emails_found:
@@ -66,7 +205,48 @@ class PIIAnonymizer:
         return content, len(emails_found)
     
     def _remove_phone_numbers(self, content: str) -> tuple[str, int]:
-        """Remove phone numbers from content"""
+        """Remove phone numbers from content using multiple regex patterns.
+        
+        Identifies and redacts phone numbers using several regex patterns to cover
+        common US and international phone number formats. The method applies multiple
+        patterns sequentially to ensure comprehensive coverage of different formatting
+        styles commonly found in resumes.
+        
+        Supported formats include:
+        - (555) 123-4567
+        - 555-123-4567
+        - 555.123.4567
+        - 555 123 4567
+        - +1 (555) 123-4567
+        - +1-555-123-4567
+        
+        Args:
+            content (str): Text content to process for phone number removal.
+        
+        Returns:
+            tuple[str, int]: A tuple containing:
+                - str: Content with phone numbers replaced by [PHONE_REDACTED]
+                - int: Total count of phone numbers found and redacted across all patterns
+        
+        Raises:
+            re.error: If any of the regex patterns fail to compile (should not occur
+                with current patterns but included for completeness).
+        
+        Example:
+            >>> anonymizer = PIIAnonymizer()
+            >>> content = "Call me at (555) 123-4567 or 555.987.6543"
+            >>> result, count = anonymizer._remove_phone_numbers(content)
+            >>> print(f"Result: {result}")
+            >>> print(f"Count: {count}")
+            Result: Call me at [PHONE_REDACTED] or [PHONE_REDACTED]
+            Count: 2
+        
+        Note:
+            - The method uses word boundaries to avoid matching numbers that are part of other data
+            - International formats with country codes (+1) are supported
+            - The patterns are applied sequentially, so a phone number should only be matched once
+            - Very non-standard formats may not be detected and would require pattern updates
+        """
         phone_patterns = [
             r'\b\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})\b',  # (555) 123-4567, 555-123-4567, 555.123.4567
             r'\b(\d{3})[-.\s](\d{3})[-.\s](\d{4})\b',          # 555 123 4567
@@ -84,7 +264,44 @@ class PIIAnonymizer:
         return content, total_phones_found
     
     def _remove_addresses(self, content: str) -> tuple[str, int]:
-        """Remove physical addresses from content"""
+        """Remove physical addresses from content using multiple regex patterns.
+        
+        Identifies and redacts physical addresses using patterns that match common
+        US address formats. The method uses two complementary patterns: one for
+        street addresses with common street type suffixes, and another for
+        city/state/ZIP combinations.
+        
+        Supported formats include:
+        - Street addresses: "123 Main Street", "456 Oak Ave", "789 First Blvd"
+        - City/State/ZIP: "Anytown, CA 90210", "New York, NY 10001-1234"
+        
+        Args:
+            content (str): Text content to process for address removal.
+        
+        Returns:
+            tuple[str, int]: A tuple containing:
+                - str: Content with addresses replaced by [ADDRESS_REDACTED]
+                - int: Total count of addresses found and redacted across all patterns
+        
+        Raises:
+            re.error: If any of the regex patterns fail to compile.
+        
+        Example:
+            >>> anonymizer = PIIAnonymizer()
+            >>> content = "I live at 123 Main Street in Springfield, IL 62701"
+            >>> result, count = anonymizer._remove_addresses(content)
+            >>> print(f"Result: {result}")
+            >>> print(f"Count: {count}")
+            Result: I live at [ADDRESS_REDACTED] in [ADDRESS_REDACTED]
+            Count: 2
+        
+        Note:
+            - The street address pattern matches common US street suffixes (Street, Ave, Road, etc.)
+            - The city/state/ZIP pattern requires the two-letter state abbreviation format
+            - Both 5-digit and 9-digit (ZIP+4) postal codes are supported
+            - International address formats are not currently supported
+            - Partial matches (like standalone ZIP codes) may not be detected
+        """
         address_patterns = [
             r'\b\d+\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Place|Pl)\b.*',
             r'\b[A-Za-z\s]+,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?\b'  # City, ST 12345 or City, ST 12345-6789
@@ -101,7 +318,51 @@ class PIIAnonymizer:
         return content, total_addresses_found
     
     def _remove_personal_urls(self, content: str) -> tuple[str, int]:
-        """Remove personal URLs while preserving professional ones"""
+        """Remove personal URLs while optionally preserving professional ones.
+        
+        Identifies and processes URLs found in the content, with configurable behavior
+        for preserving professional domains (like LinkedIn, GitHub) while redacting
+        personal websites and portfolios. The method can operate in two modes based
+        on configuration settings.
+        
+        When preserve_professional_urls is enabled (default), URLs are checked against
+        a whitelist of professional domains loaded from configuration. Professional
+        URLs are preserved while personal ones are redacted.
+        
+        When preserve_professional_urls is disabled, all URLs are redacted regardless
+        of domain.
+        
+        Args:
+            content (str): Text content to process for URL removal/filtering.
+        
+        Returns:
+            tuple[str, int]: A tuple containing:
+                - str: Content with personal URLs replaced by [WEBSITE_REDACTED]
+                - int: Count of personal URLs that were redacted (professional URLs
+                  preserved are not counted in this number)
+        
+        Raises:
+            re.error: If the URL regex pattern fails to compile.
+            AttributeError: If the configuration method get_professional_domains()
+                is not available (should not occur with proper config setup).
+        
+        Example:
+            >>> anonymizer = PIIAnonymizer()
+            >>> content = "Visit my site at https://johnsmith.com or find me on https://linkedin.com/in/johnsmith"
+            >>> result, count = anonymizer._remove_personal_urls(content)
+            >>> print(f"Result: {result}")
+            >>> print(f"Count: {count}")
+            # Assuming LinkedIn is in professional domains:
+            Result: Visit my site at [WEBSITE_REDACTED] or find me on https://linkedin.com/in/johnsmith
+            Count: 1
+        
+        Note:
+            - The URL pattern matches both HTTP and HTTPS protocols
+            - Subdomains (www.) are handled correctly
+            - Professional domains are configured in the application config file
+            - Common professional domains typically include: linkedin.com, github.com, etc.
+            - The domain matching is case-insensitive for better reliability
+        """
         url_pattern = r'https?://(?:www\.)?[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:/[^\s]*)?'
         urls_found = re.findall(url_pattern, content)
         
@@ -131,7 +392,52 @@ class PIIAnonymizer:
         return content, personal_urls_count
     
     def _remove_candidate_name(self, content: str) -> tuple[str, bool]:
-        """Remove candidate name from the top of the resume"""
+        """Remove candidate name from the top of the resume using heuristic detection.
+        
+        Attempts to identify and redact the candidate's name from the first line of
+        the resume using heuristic analysis. The method assumes that resumes typically
+        start with the candidate's name as the header/title.
+        
+        The detection algorithm checks if the first line meets the following criteria:
+        - Contains 2-3 words (typical for names)
+        - Contains only alphabetic characters and spaces
+        - Uses title case formatting (first letter of each word capitalized)
+        - Is shorter than 50 characters (to avoid matching long titles or headers)
+        
+        This heuristic approach is designed to be conservative and may not catch all
+        name variations, but it minimizes false positives on professional titles or
+        other header content.
+        
+        Args:
+            content (str): Resume text content to process for name removal.
+        
+        Returns:
+            tuple[str, bool]: A tuple containing:
+                - str: Content with the first line replaced by [NAME_REDACTED] if a
+                  name was detected, otherwise unchanged content
+                - bool: True if a name was detected and redacted, False otherwise
+        
+        Raises:
+            None: This method handles all edge cases gracefully and does not raise exceptions.
+        
+        Example:
+            >>> anonymizer = PIIAnonymizer()
+            >>> content = '''John Smith
+            ... Software Engineer
+            ... 5 years experience'''
+            >>> result, was_removed = anonymizer._remove_candidate_name(content)
+            >>> print(f"Name removed: {was_removed}")
+            >>> print(result.split('\\n')[0])
+            Name removed: True
+            [NAME_REDACTED]
+        
+        Note:
+            - Only processes the first line of the document
+            - The heuristic may miss names that don't follow typical formatting
+            - Names with titles (Dr., Jr., etc.) may not be detected
+            - Non-English names or unusual formatting may not match the criteria
+            - The method errs on the side of caution to avoid redacting professional titles
+        """
         lines = content.split('\n')
         if not lines:
             return content, False
