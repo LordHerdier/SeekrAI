@@ -14,89 +14,22 @@ import time
 
 
 class ResumeProcessor:
-    """Main orchestrator for resume processing operations in the SeekrAI platform.
-    
-    This class serves as the central coordinator for all resume processing operations,
-    integrating AI-powered analysis, PII anonymization, caching, and file reading
-    capabilities. It handles the complete workflow from raw resume file input to
-    structured keyword extraction and job search term generation.
-    
-    The ResumeProcessor leverages OpenAI's API for intelligent content analysis,
-    implements robust caching to minimize API calls and improve performance, and
-    provides comprehensive error handling and logging throughout the processing
-    pipeline.
-    
-    Key Features:
-        - Multi-format resume file processing (PDF, DOCX, TXT)
-        - AI-powered keyword extraction and analysis
-        - PII anonymization for privacy protection
-        - Intelligent job search term generation
-        - Job posting analysis and ranking
-        - Response caching for performance optimization
-        - Parallel processing support for batch operations
-        - Comprehensive error handling and logging
-    
-    Processing Pipeline:
-        1. File reading and content extraction
-        2. PII anonymization (if enabled)
-        3. AI-powered keyword extraction
-        4. Search term generation
-        5. Optional job analysis and ranking
-    
-    Attributes:
-        config (ConfigLoader): Configuration manager instance
-        client (OpenAI): OpenAI API client for AI operations
-        logger (logging.Logger): Logger instance for operation tracking
-        file_reader (FileReader): Component for reading various file formats
-        pii_anonymizer (PIIAnonymizer): Component for PII detection and anonymization
-        cache_manager (CacheManager): Component for response caching
-    
-    Example:
-        >>> processor = ResumeProcessor()
-        >>> results = processor.process_resume(
-        ...     "path/to/resume.pdf",
-        ...     target_location="San Francisco, CA",
-        ...     desired_position="Software Engineer"
-        ... )
-        >>> print(f"Keywords extracted: {len(results['keywords']['technical_skills'])}")
-        >>> print(f"Search terms generated: {len(results['search_terms']['primary_search_terms'])}")
-    
-    Note:
-        This class requires a valid OpenAI API key configured in the application
-        settings. All AI operations are subject to OpenAI's rate limits and usage policies.
-        The processor automatically handles caching to minimize redundant API calls.
+    """Central orchestrator for processing resumes into structured keywords and search terms.
+
+    Integrates file reading, PII anonymization, AI-powered keyword extraction, caching,
+    and search-term generation. Designed for batch or single-file workflows.
     """
     
     def __init__(self, cache_dir: str = None):
-        """Initialize the ResumeProcessor with all required components and configuration.
-        
-        Sets up the complete processing pipeline including AI client configuration,
-        component initialization, and logging setup. The processor is configured
-        using the application's configuration system and can optionally use a
-        custom cache directory.
-        
+        """Initialize all components: config, OpenAI client, file reader, PII anonymizer, and cache manager.
+
         Args:
-            cache_dir (str, optional): Custom directory path for caching operations.
-                If None, uses the cache directory specified in the application
-                configuration. Defaults to None.
-        
+            cache_dir (str, optional): Path for cache storage. Defaults to the app’s configured cache directory.
+
         Raises:
-            ConfigurationError: If the application configuration cannot be loaded
-                or contains invalid settings.
+            ConfigurationError: If loading configuration fails.
             AuthenticationError: If the OpenAI API key is invalid or missing.
-            IOError: If the cache directory cannot be created or accessed.
-        
-        Example:
-            >>> # Use default cache directory from config
-            >>> processor = ResumeProcessor()
-            
-            >>> # Use custom cache directory
-            >>> processor = ResumeProcessor(cache_dir="/custom/cache/path")
-        
-        Note:
-            The OpenAI client is initialized immediately during construction and
-            will validate the API key. Ensure your API key is properly configured
-            before instantiating this class.
+            OSError: If the cache directory can’t be created or accessed.
         """
         self.config = get_config()
         self.client = OpenAI(api_key=self.config.get_openai_api_key())
@@ -108,90 +41,25 @@ class ResumeProcessor:
         self.cache_manager = CacheManager(cache_dir)
     
     def process_resume(self, resume_file_path: str, target_location: str = None, desired_position: str = None) -> Dict:
-        """Process a resume file through the complete analysis pipeline.
-        
-        This is the main entry point for resume processing operations. It orchestrates
-        the entire workflow from file reading through AI analysis, handling each step
-        with comprehensive error handling and logging. The method returns structured
-        data containing extracted keywords and generated search terms.
-        
-        Processing Steps:
-            1. Read and extract content from the resume file
-            2. Anonymize PII if privacy protection is enabled
-            3. Extract keywords and professional information using AI
-            4. Generate optimized job search terms based on extracted data
-            5. Return structured results for further processing
-        
+        """Run a resume through the full pipeline: read → anonymize → extract keywords → generate search terms.
+
         Args:
-            resume_file_path (str): Path to the resume file to be processed.
-                Supports PDF, DOCX, DOC, and TXT formats. Can be absolute or
-                relative path.
-            target_location (str, optional): Desired job location for search
-                optimization. Examples: "San Francisco, CA", "Remote", "New York".
-                If provided, influences search term generation. Defaults to None.
-            desired_position (str, optional): Target job title or position.
-                Examples: "Software Engineer", "Data Scientist", "Product Manager".
-                If provided, helps focus the search term generation. Defaults to None.
-        
+            resume_file_path (str): Path to a PDF, DOCX or TXT resume.
+            target_location (str, optional): If set, tailors search-term generation (e.g. "Remote", "NYC"). Defaults to None.
+            desired_position (str, optional): If set, focuses search terms on that title. Defaults to None.
+
         Returns:
-            Dict: Comprehensive processing results containing:
-                - keywords (Dict): Extracted professional information including:
-                    - technical_skills (List[str]): Programming languages, tools, etc.
-                    - soft_skills (List[str]): Communication, leadership, etc.
-                    - programming_languages (List[str]): Specific languages
-                    - frameworks_libraries (List[str]): Technical frameworks
-                    - tools_technologies (List[str]): Software tools and platforms
-                    - industries (List[str]): Industry experience
-                    - experience_level (str): Junior/mid/senior classification
-                    - education (List[str]): Educational background
-                    - certifications (List[str]): Professional certifications
-                    - job_titles (List[str]): Previous job titles
-                    - companies (List[str]): Previous employers
-                    - location_preferences (List[str]): Geographic preferences
-                    - years_experience (str): Experience duration
-                    - search_terms (Dict): Optimized search terms including:
-                    - primary_search_terms (List[str]): Main search keywords
-                    - secondary_search_terms (List[str]): Alternative keywords
-                    - location (str): Optimized location string
-                    - google_search_string (str): Complete search query
-                    - job_titles_to_search (List[str]): Relevant job titles
-                    - keywords_for_filtering (List[str]): Filtering keywords
-        
+            dict: {
+                "keywords": { … },       # structured AI-extracted info
+                "search_terms": { … }    # optimized job-search keywords
+            }
+
         Raises:
-            FileNotFoundError: If the specified resume file does not exist.
-            ValueError: If the file format is unsupported or if AI processing fails
-                to extract valid keywords or generate search terms.
-            PermissionError: If the resume file cannot be read due to permissions.
-            OpenAIError: If the AI API calls fail due to network, authentication,
-                or rate limiting issues.
-            ProcessingError: If any step in the processing pipeline fails.
-        
-        Example:
-            >>> processor = ResumeProcessor()
-            >>> results = processor.process_resume(
-            ...     "/path/to/resume.pdf",
-            ...     target_location="Seattle, WA",
-            ...     desired_position="Senior Python Developer"
-            ... )
-            >>> 
-            >>> # Access extracted technical skills
-            >>> tech_skills = results['keywords']['technical_skills']
-            >>> print(f"Technical skills found: {', '.join(tech_skills[:5])}")
-            >>> 
-            >>> # Access generated search terms
-            >>> primary_terms = results['search_terms']['primary_search_terms']
-            >>> print(f"Primary search terms: {', '.join(primary_terms)}")
-            >>> 
-            >>> # Get the optimized Google search string
-            >>> google_query = results['search_terms']['google_search_string']
-            >>> print(f"Google search: {google_query}")
-        
-        Note:
-            - The method uses caching to avoid redundant AI API calls for identical content
-            - PII anonymization is applied before AI analysis to protect privacy
-            - Processing time varies based on file size and AI API response times
-            - All operations are logged for debugging and audit purposes
-            - The method is thread-safe and can be called concurrently
+            FileNotFoundError: If resume_file_path doesn’t exist.
+            ValueError: On failed keyword extraction or search-term generation.
+            PermissionError: If file isn’t readable.
+            OpenAIError: On API failures.
+            ProcessingError: For any other pipeline error.
         """
         self.logger.info(f"Starting resume processing for: {resume_file_path}")
         
@@ -232,80 +100,33 @@ class ResumeProcessor:
             raise
     
     def extract_keywords(self, resume_content: str) -> Dict:
-        """Extract structured keywords and professional information from resume content using AI.
-        
-        This method uses OpenAI's API to perform intelligent analysis of resume content,
-        extracting and categorizing various types of professional information. The
-        extraction process is designed to identify technical skills, soft skills,
-        experience levels, education, and other relevant professional data.
-        
-        The method implements comprehensive caching to minimize API calls and improve
-        performance. Identical resume content will return cached results if available
-        and not expired.
-        
+        """Use OpenAI (with caching) to pull out skills, experience level, education, etc., from resume text.
+
         Args:
-            resume_content (str): The resume text content to analyze. Should be
-                clean text extracted from the original file. PII anonymization
-                is typically applied before calling this method.
-        
+            resume_content (str): Plain-text resume (PII already anonymized).
+
         Returns:
-            Dict: Structured professional information containing:
-                - technical_skills (List[str]): Programming languages, technical tools,
-                  software platforms, and technical competencies
-                - soft_skills (List[str]): Communication, leadership, teamwork,
-                  problem-solving, and other interpersonal skills
-                - programming_languages (List[str]): Specific programming languages
-                  mentioned (Python, Java, JavaScript, etc.)
-                - frameworks_libraries (List[str]): Development frameworks and
-                  libraries (React, Django, TensorFlow, etc.)
-                - tools_technologies (List[str]): Software tools, platforms, and
-                  technologies (Docker, AWS, Git, etc.)
-                - industries (List[str]): Industry sectors with experience
-                  (Finance, Healthcare, E-commerce, etc.)
-                - experience_level (str): Classified experience level
-                  ("junior", "mid", "senior")
-                - education (List[str]): Educational background including degrees
-                  and institutions
-                - certifications (List[str]): Professional certifications and
-                  credentials
-                - job_titles (List[str]): Previous job titles and positions held
-                - companies (List[str]): Previous employers and organizations
-                - location_preferences (List[str]): Geographic preferences or
-                  locations mentioned
-                - years_experience (str): Total years of experience or experience
-                  range
-        
+            dict: {
+                "technical_skills": List[str],
+                "soft_skills": List[str],
+                "programming_languages": List[str],
+                "frameworks_libraries": List[str],
+                "tools_technologies": List[str],
+                "industries": List[str],
+                "experience_level": str,
+                "education": List[str],
+                "certifications": List[str],
+                "job_titles": List[str],
+                "companies": List[str],
+                "location_preferences": List[str],
+                "years_experience": str
+            }
+
         Raises:
-            ValueError: If the resume content is empty, if the AI response cannot
-                be parsed, or if no valid keywords are extracted.
-            OpenAIError: If the API call fails due to authentication, rate limits,
-                network issues, or service unavailability.
-            JSONDecodeError: If the AI response is not in valid JSON format and
-                cannot be parsed by the fallback parsing methods.
-            CacheError: If there are issues accessing or saving to the cache
-                (logged but does not interrupt processing).
-        
-        Example:
-            >>> processor = ResumeProcessor()
-            >>> content = "John Doe\\nSoftware Engineer with 5 years Python experience..."
-            >>> keywords = processor.extract_keywords(content)
-            >>> 
-            >>> # Access different categories of extracted information
-            >>> print(f"Technical skills: {keywords['technical_skills']}")
-            >>> print(f"Programming languages: {keywords['programming_languages']}")
-            >>> print(f"Experience level: {keywords['experience_level']}")
-            >>> print(f"Years of experience: {keywords['years_experience']}")
-            >>> 
-            >>> # Check for specific skills
-            >>> if 'Python' in keywords['programming_languages']:
-            ...     print("Python developer detected")
-        
-        Note:
-            - The method uses GPT models for analysis, so results may vary slightly
-            - Caching is based on content hash, so identical content returns cached results
-            - The AI prompt is designed to extract comprehensive professional information
-            - Processing time depends on content length and AI API response times
-            - Failed extractions are logged with detailed error information
+            ValueError: If input is empty or parsing fails.
+            OpenAIError: On API errors (auth, rate limit, network).
+            json.JSONDecodeError: If AI response isn’t valid JSON.
+            CacheError: If cache read/write fails (logged but non-fatal).
         """
         self.logger.debug("Starting keyword extraction")
         
@@ -351,87 +172,37 @@ class ResumeProcessor:
             raise
     
     def generate_search_terms(self, keywords_data: Dict, target_location: str = None, desired_position: str = None) -> Dict:
-        """Generate optimized job search terms based on extracted resume keywords.
-        
-        This method takes the structured keyword data extracted from a resume and
-        generates optimized search terms for job hunting. It uses AI to create
-        targeted search queries, job titles to search for, and filtering keywords
-        that will help find the most relevant job opportunities.
-        
-        The method considers the target location and desired position (if provided)
-        to create more focused and relevant search terms. It implements caching
-        to avoid redundant API calls for identical keyword combinations.
-        
+        """
+        Produce job-search queries from resume keywords, with caching.
+
+        Examines the structured `keywords_data`, builds a prompt, and calls OpenAI
+        to return a dict of search terms.  Uses an internal cache key derived from
+        `keywords_data`, `target_location`, and `desired_position` to avoid repeated
+        API calls for the same inputs.
+
         Args:
-            keywords_data (Dict): Structured professional information extracted
-                from the resume, typically the output of extract_keywords().
-                Should contain keys like 'technical_skills', 'programming_languages',
-                'experience_level', etc.
-            target_location (str, optional): Desired job location to optimize
-                search terms for geographic relevance. Examples: "San Francisco, CA",
-                "Remote", "New York", "London, UK". Defaults to None.
-            desired_position (str, optional): Target job title or role to focus
-                the search term generation. Examples: "Senior Software Engineer",
-                "Data Scientist", "Product Manager". Defaults to None.
-        
+            keywords_data (Dict): Output of `extract_keywords()`, e.g. with keys
+                like 'technical_skills', 'experience_level', etc.
+            target_location (str, optional): Geographic filter (e.g. "Remote",
+                "NYC, NY"). Defaults to None.
+            desired_position (str, optional): Job title to bias results (e.g.
+                "Senior Data Scientist"). Defaults to None.
+
         Returns:
-            Dict: Optimized search terms and strategies containing:
-                - primary_search_terms (List[str]): Main keywords for job searches,
-                  optimized for the candidate's strongest skills and experience
-                - secondary_search_terms (List[str]): Alternative search terms
-                  for broader job discovery and related positions
-                - location (str): Optimized location string for job searches,
-                  considering remote work preferences and geographic flexibility
-                - google_search_string (str): Complete, ready-to-use Google search
-                  query combining skills, location, and job types
-                - job_titles_to_search (List[str]): Specific job titles that align
-                  with the candidate's experience and career level
-                - keywords_for_filtering (List[str]): Keywords to use for filtering
-                  job results to ensure relevance and match
-        
+            Dict: {
+                'primary_search_terms': List[str],
+                'secondary_search_terms': List[str],
+                'location': str,
+                'google_search_string': str,
+                'job_titles_to_search': List[str],
+                'keywords_for_filtering': List[str],
+            }
+
         Raises:
-            ValueError: If keywords_data is empty or invalid, if the AI response
-                cannot be parsed, or if no valid search terms are generated.
-            TypeError: If keywords_data is not a dictionary or contains invalid
-                data types for processing.
-            OpenAIError: If the API call fails due to authentication, rate limits,
-                network issues, or service unavailability.  
-            JSONDecodeError: If the AI response cannot be parsed as valid JSON.
-            CacheError: If there are issues with cache operations (logged but
-                does not interrupt processing).
-        
-        Example:
-            >>> processor = ResumeProcessor()
-            >>> # Assume we have keywords from previous extraction
-            >>> keywords = {
-            ...     'technical_skills': ['Python', 'Machine Learning', 'AWS'],
-            ...     'programming_languages': ['Python', 'SQL', 'JavaScript'],
-            ...     'experience_level': 'senior',
-            ...     # ... other keyword categories
-            ... }
-            >>> 
-            >>> search_terms = processor.generate_search_terms(
-            ...     keywords,
-            ...     target_location="San Francisco, CA",
-            ...     desired_position="Senior Data Scientist"
-            ... )
-            >>> 
-            >>> # Use the generated search terms
-            >>> print(f"Primary terms: {search_terms['primary_search_terms']}")
-            >>> print(f"Job titles to search: {search_terms['job_titles_to_search']}")
-            >>> print(f"Google search query: {search_terms['google_search_string']}")
-            >>> 
-            >>> # Use for automated job searching
-            >>> for term in search_terms['primary_search_terms']:
-            ...     # Perform job search with this term
-            ...     pass
-        
-        Note:
-            - Search terms are optimized based on the candidate's experience level
-            - Location preferences influence both local and remote job suggestions
-            - The AI considers industry trends and job market demands
-            - Generated terms balance specificity with search result volume
-            - Caching prevents redundant API calls for identical input combinations
+            ValueError: If the AI response can’t be parsed into valid search terms.
+            TypeError: If `keywords_data` isn’t a dict.
+            Any exceptions raised by the OpenAI client, JSON parsing, or cache
+            operations (e.g., `OpenAIError`, `JSONDecodeError`, `CacheError`).
         """
         self.logger.debug("Starting search term generation")
         
@@ -483,101 +254,38 @@ class ResumeProcessor:
             raise
     
     def analyze_and_rank_jobs(self, jobs_data: List[Dict], resume_keywords: Dict, max_jobs: int = None) -> List[Dict]:
-        """Analyze and rank job postings based on resume keyword matching and compatibility.
-        
-        This method performs intelligent analysis of job postings to determine their
-        compatibility with a candidate's resume. It uses AI-powered analysis to
-        evaluate job requirements against the candidate's skills and experience,
-        providing similarity scores, detailed explanations, and ranking.
-        
-        The method supports both parallel and sequential processing modes based on
-        configuration settings, and implements intelligent job limiting to balance
-        analysis depth with performance requirements.
-        
-        Analysis Features:
-            - AI-powered job description analysis
-            - Skill matching and gap identification
-            - Salary extraction and parsing
-            - Compatibility scoring (0.0 to 1.0)
-            - Detailed match explanations
-            - Missing requirement identification
-            - Batch processing for efficiency
-        
+        """
+        Score and sort job posts by how well they match resume keywords.
+
+        If job-analysis is disabled in config, returns `jobs_data` unmodified.
+        Otherwise, takes up to `max_jobs` (or config’s default), runs AI-powered
+        analysis in batches (parallel or sequential), and appends any leftover
+        postings with a default “not analyzed” explanation.  Optionally
+        sorts by similarity score if enabled.
+
         Args:
-            jobs_data (List[Dict]): List of job posting dictionaries to analyze.
-                Each job should contain fields like 'title', 'description', 
-                'company', 'location', etc. The exact structure depends on the
-                job data source.
-            resume_keywords (Dict): Structured keyword data from the candidate's
-                resume, typically the output from extract_keywords(). Used for
-                matching against job requirements.
-            max_jobs (int, optional): Maximum number of jobs to perform detailed
-                analysis on. If None, uses the configuration setting. Remaining
-                jobs get basic analysis. Helps balance accuracy with performance.
-                Defaults to None.
-        
+            jobs_data (List[Dict]): Each dict should have keys like
+                'title', 'description', 'company', 'location', etc.
+            resume_keywords (Dict): Keywords from the candidate’s resume.
+            max_jobs (int, optional): How many postings to analyze in depth.
+                If None, uses `config.get_max_jobs_to_analyze()`. Defaults to None.
+
         Returns:
-            List[Dict]: Enhanced job postings with analysis results. Each job
-            dictionary is augmented with:
-                - analyzed (bool): Whether AI analysis was performed
-                - similarity_score (float): Compatibility score (0.0 to 1.0)
-                - similarity_explanation (str): Detailed explanation of the match
-                - salary_min_extracted (float): Extracted minimum salary
-                - salary_max_extracted (float): Extracted maximum salary  
-                - salary_confidence (float): Confidence in salary extraction
-                - key_matches (List[str]): Skills/requirements that match
-                - missing_requirements (List[str]): Requirements the candidate lacks
-                
-            Jobs are sorted by similarity_score (highest first) if ranking is enabled.
-        
+            List[Dict]: Each job dict is augmented with:
+                - 'analyzed' (bool)
+                - 'similarity_score' (float 0.0–1.0)
+                - 'similarity_explanation' (str)
+                - 'salary_min_extracted' (float)
+                - 'salary_max_extracted' (float)
+                - 'salary_confidence' (float)
+                - 'key_matches' (List[str])
+                - 'missing_requirements' (List[str])
+            Jobs beyond the analysis limit get `analyzed=False` and a default
+            explanation, and are included last before sorting.
+
         Raises:
-            ValueError: If jobs_data is empty or contains invalid job data,
-                or if resume_keywords is missing required fields.
-            TypeError: If jobs_data is not a list or resume_keywords is not a dict.
-            ConfigurationError: If job analysis configuration is invalid.
-            ProcessingError: If batch processing fails or if too many jobs
-                fail individual analysis.
-        
-        Example:
-            >>> processor = ResumeProcessor()
-            >>> 
-            >>> # Sample job data
-            >>> jobs = [
-            ...     {
-            ...         'title': 'Senior Python Developer',
-            ...         'description': 'Looking for Python expert with Django...',
-            ...         'company': 'Tech Corp',
-            ...         'location': 'San Francisco, CA'
-            ...     },
-            ...     # ... more jobs
-            ... ]
-            >>> 
-            >>> # Resume keywords from previous extraction
-            >>> keywords = {
-            ...     'technical_skills': ['Python', 'Django', 'AWS'],
-            ...     'programming_languages': ['Python', 'JavaScript'],
-            ...     'experience_level': 'senior'
-            ... }
-            >>> 
-            >>> # Analyze and rank jobs
-            >>> analyzed_jobs = processor.analyze_and_rank_jobs(
-            ...     jobs, keywords, max_jobs=10
-            ... )
-            >>> 
-            >>> # Review top matches
-            >>> for job in analyzed_jobs[:5]:
-            ...     print(f"{job['title']}: {job['similarity_score']:.2f}")
-            ...     print(f"  Match: {job['similarity_explanation']}")
-            ...     if job['key_matches']:
-            ...         print(f"  Key matches: {', '.join(job['key_matches'])}")
-        
-        Note:
-            - Analysis is limited by configuration to balance performance and cost
-            - Jobs beyond the analysis limit receive default scores and explanations
-            - Parallel processing is used when enabled and multiple batches are needed
-            - The similarity scoring considers both skill matches and experience level
-            - Salary extraction attempts to parse various salary formats from job descriptions, though it may not always be successful
-            - All analysis results are logged for debugging and audit purposes
+            TypeError: If `jobs_data` is not a list or `resume_keywords` is not a dict.
+            Any exceptions from batch processing or underlying AI calls.
         """
         if not self.config.get_job_analysis_enabled():
             self.logger.info("Job analysis disabled in configuration")
@@ -853,23 +561,24 @@ class ResumeProcessor:
             raise ValueError(f"Could not parse JSON from response: {content[:200]}...")
     
     def _process_batches_parallel(self, jobs_to_analyze: List[Dict], batch_size: int, resume_keywords: Dict) -> List[Dict]:
-        """Process job analysis batches in parallel using thread pool execution.
-        
-        This private method implements parallel processing of job analysis batches
-        to improve performance when analyzing large numbers of job postings. It
-        uses ThreadPoolExecutor to manage concurrent batch processing.
-        
+        """Process job analysis batches in parallel using a thread pool.
+
+        This private method splits `jobs_to_analyze` into chunks of `batch_size`
+        and submits each chunk to a ThreadPoolExecutor for concurrent processing
+        via `_analyze_job_batch`.
+
         Args:
-            jobs_to_analyze (List[Dict]): Jobs to analyze in parallel batches.
-            batch_size (int): Number of jobs per batch.
-            resume_keywords (Dict): Resume keywords for job matching.
-        
+            jobs_to_analyze (List[Dict]): List of job postings to analyze.
+            batch_size (int): Number of jobs in each batch.
+            resume_keywords (Dict): Keywords from the resume for matching.
+
         Returns:
-            List[Dict]: Combined results from all parallel batch processing.
-        
+            List[Dict]: All analyzed jobs combined, in no guaranteed order.
+
         Note:
-            The number of parallel workers is controlled by configuration settings.
-            Failed batches are handled gracefully without stopping other batches.
+            - Max workers is driven by `self.config['job_analysis.parallel_workers']`.
+            - Any exception raised during a batch’s analysis will bubble up
+            when retrieving its result, potentially aborting the whole run.
         """
         analyzed_jobs = []
         futures = []

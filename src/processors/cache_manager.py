@@ -198,26 +198,19 @@ class CacheManager:
     
     def clear_cache(self) -> Dict:
         """
-        Clear all cached responses from the cache directory.
-        
-        Removes all JSON cache files from the cache directory and returns
-        statistics about the clearing operation including number of files
-        removed and disk space freed.
-        
+        Remove all JSON cache files in the cache directory and return statistics.
+
+        Iterates through the cache directory and deletes each `.json` file. Logs and ignores
+        any errors encountered while removing individual files. If scanning the directory
+        fails, the exception is logged and re-raised.
+
         Returns:
-            Dict: Dictionary containing clearing statistics with keys:
-                - files_removed (int): Number of cache files removed
-                - space_freed_mb (float): Disk space freed in megabytes
-        
+            Dict[str, Any]: Statistics of the clearing operation:
+                - files_removed (int): number of files successfully removed
+                - space_freed_mb (float): total freed space in megabytes (rounded to 2 decimals)
+
         Raises:
-            Exception: Re-raises any exception that occurs during the clearing process
-                after logging the error.
-        
-        Example:
-            >>> manager = CacheManager()
-            >>> stats = manager.clear_cache()
-            >>> print(f"Removed {stats['files_removed']} files, "
-            ...       f"freed {stats['space_freed_mb']} MB")
+            Exception: If the cache directory cannot be scanned.
         """
         self.logger.info("Clearing all cached responses")
         

@@ -6,23 +6,18 @@ from pathlib import Path
 
 
 class FileReader:
-    """Handles reading content from various file formats.
-    
-    This class provides functionality to read and extract text content from different
-    file formats commonly used for resumes and job-related documents. Supported formats
-    include plain text (.txt), PDF (.pdf), and Microsoft Word documents (.doc, .docx).
-    
-    The class implements robust error handling and logging to track file processing
-    operations and handle encoding issues gracefully.
-    
+    """Read and extract text from various document formats.
+
+    Supports plain-text (.txt), PDF (.pdf), and Microsoft Word (.docx) files.
+    Uses robust error handling and logging to trace file operations and errors.
+    Note: Legacy .doc files are not natively supported by python-docx and may fail.
+
     Attributes:
-        logger (logging.Logger): Logger instance for tracking file operations and errors.
-    
+        logger (logging.Logger): Logger for recording operations and errors.
+
     Example:
-        >>> reader = FileReader()
-        >>> content = reader.read_resume_file("resume.pdf")
-        >>> print(len(content))
-        1234
+        reader = FileReader()
+        content = reader.read_resume_file("resume.pdf")
     """
     
     def __init__(self):
@@ -34,40 +29,26 @@ class FileReader:
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
     
     def read_resume_file(self, file_path: str) -> str:
-        """Read resume content from various file formats.
-        
-        This is the main public method that determines the file type based on its
-        extension and delegates to the appropriate private method for content extraction.
-        Supports TXT, PDF, DOC, and DOCX file formats.
-        
+        """Extract text content based on file extension.
+
+        Detects file type from the extension of `file_path` and delegates
+        to the appropriate handler: `_read_txt_file`, `_read_pdf_file`,
+        or `_read_docx_file`.
+
         Args:
-            file_path (str): Path to the resume file to be read. Can be absolute or
-                relative path. The file extension is used to determine the processing method.
-        
+            file_path (str): Path to the file to read.
+
         Returns:
-            str: The extracted text content from the file. Empty or whitespace-only
-                content will trigger appropriate error handling in the format-specific
-                methods.
-        
+            str: Extracted text.  
+                - For .txt files, may be an empty string if there's no content.  
+                - For .pdf and .docx, raises `ValueError` if no extractable text.
+
         Raises:
-            ValueError: If the file format is not supported (extension not in 
-                ['txt', 'pdf', 'doc', 'docx']) or if the file contains no extractable content.
-            FileNotFoundError: If the specified file path does not exist.
-            PermissionError: If the file cannot be accessed due to permission restrictions.
-            Exception: For any other file reading errors, with the original exception
-                logged and re-raised.
-        
-        Example:
-            >>> reader = FileReader()
-            >>> content = reader.read_resume_file("/path/to/resume.pdf")
-            >>> print(content[:100])
-            John Doe
-            Software Engineer
-            Experience: 5 years...
-        
-        Note:
-            The method automatically detects file format based on extension and
-            handles encoding issues for text files by attempting multiple encodings.
+            FileNotFoundError: If `file_path` does not exist.
+            PermissionError: If the file isn't accessible.
+            ValueError: If the extension is unsupported, or if a .pdf/.docx
+                contains no extractable text.
+            Exception: Other I/O or parsing errors, as logged and re-raised.
         """
         self.logger.info(f"Reading resume file: {file_path}")
         file_extension = file_path.lower().split('.')[-1]
@@ -191,40 +172,28 @@ class FileReader:
         return full_content
     
     def _read_docx_file(self, file_path: str) -> str:
-        """Read and extract text content from a Microsoft Word document.
-        
-        Uses the python-docx library to extract text from DOCX files by iterating
-        through all paragraphs in the document. Filters out empty paragraphs and
-        provides detailed logging about the extraction process.
-        
+        """Extract text from a .docx file using python-docx.
+
+        Iterates through all non-empty paragraphs and joins them
+        with newline separators.
+
         Args:
-            file_path (str): Path to the DOCX file to be read. Also handles legacy
-                DOC files if they can be opened by the python-docx library.
-        
+            file_path (str): Path to the .docx file.
+
         Returns:
-            str: Concatenated text content from all non-empty paragraphs,
-                with paragraphs separated by newline characters.
-        
+            str: Text content composed of all non-empty paragraphs.
+
         Raises:
-            ValueError: If the DOCX file contains no text content, or if the file
-                cannot be read due to format issues.
-            FileNotFoundError: If the specified DOCX file does not exist.
-            PermissionError: If the DOCX file cannot be opened due to permissions.
-            docx.opc.exceptions.PackageNotFoundError: If the file is not a valid
-                DOCX format or is corrupted.
+            FileNotFoundError: If the file is missing.
+            PermissionError: If the file isn’t accessible.
+            ValueError: If the document has no text, or if reading fails
+                due to format issues or corruption.
         
         Example:
             >>> reader = FileReader()
-            >>> content = reader._read_docx_file("resume.docx")
-            >>> paragraphs = content.split('\n')
-            >>> print(f"Document has {len(paragraphs)} paragraphs")
-            Document has 15 paragraphs
-        
-        Note:
-            - Only extracts text content; formatting, images, and tables are not processed
-            - Empty paragraphs are automatically filtered out
-            - The method validates that the document contains extractable text content
-            - Legacy DOC files may work but DOCX format is recommended for best results
+            >>> content = reader._read_docx_file("document.docx")
+            >>> print(f"Read {len(content)} characters")
+            Read 1500 characters
         """
         try:
             doc = Document(file_path)

@@ -43,80 +43,45 @@ class PIIAnonymizer:
     """
     
     def __init__(self):
-        """Initialize the PIIAnonymizer with configuration and logging setup.
-        
-        Sets up the anonymizer instance by loading the application configuration
-        and initializing a logger for tracking anonymization operations. The
-        configuration determines which PII types to process and how aggressive
-        the anonymization should be.
-        
-        The logger is configured with a hierarchical name including the module
-        and class name for easy filtering and debugging in application logs.
-        
-        Raises:
-            ConfigurationError: If the application configuration cannot be loaded
-                or contains invalid settings for PII anonymization.
-        
-        Example:
-            >>> anonymizer = PIIAnonymizer()
-            >>> print(type(anonymizer.config))
-            <class 'config_loader.ConfigLoader'>
+        """Initialize the PIIAnonymizer.
+
+        Loads the application configuration and sets up a class-specific logger.
+        The config determines whether PII removal is active and how URLs are treated.
+
+        Attributes:
+            config: Loaded config object (via get_config()).
+            logger: Logger named "{module}.{class}" for anonymization events.
+
+        Note:
+            Any errors from config_loader.get_config() will bubble up if loading fails.
         """
         self.config = get_config()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
     
     def anonymize_resume(self, resume_content: str) -> str:
-        """Remove or anonymize PII from resume content based on configuration settings.
-        
-        This is the main public method that orchestrates the complete PII anonymization
-        process. It applies multiple anonymization techniques in sequence to identify
-        and redact different types of personally identifiable information while
-        preserving the overall document structure and professional content.
-        
-        The method processes PII types in the following order:
-        1. Email addresses
-        2. Phone numbers (multiple format patterns)
-        3. Physical addresses (street addresses and city/state/zip)
-        4. Personal websites and portfolios
-        5. Candidate names (typically from document header)
-        
-        Each anonymization step can be individually controlled through configuration
-        settings, allowing for customized privacy protection based on use case requirements.
-        
+        """Anonymize PII in the given resume text.
+
+        Applies redaction in this fixed order:
+        1. Emails
+        2. Phone numbers
+        3. Physical addresses
+        4. Personal URLs
+        5. Candidate name (first line)
+
+        If 'resume_processing.pii_removal.enabled' is False, returns the input unchanged.
+        Personal URL handling is governed by
+        'resume_processing.pii_removal.preserve_professional_urls'.
+
         Args:
-            resume_content (str): The original resume text content to be anonymized.
-                Can contain multiple lines and various formatting. Empty or whitespace-only
-                content is handled gracefully.
-        
+            resume_content: Original resume text to redact.
+
         Returns:
-            str: The anonymized resume content with PII replaced by redaction markers.
-                Original formatting and structure are preserved. Redaction markers follow
-                the pattern [TYPE_REDACTED] (e.g., [EMAIL_REDACTED], [PHONE_REDACTED]).
-        
-        Raises:
-            TypeError: If resume_content is not a string.
-            ConfigurationError: If PII anonymization configuration is invalid or missing.
-        
-        Example:
-            >>> anonymizer = PIIAnonymizer()
-            >>> original = '''John Smith
-            ... Software Engineer
-            ... john.smith@email.com | (555) 123-4567
-            ... 123 Main St, Anytown, CA 90210
-            ... Portfolio: https://johnsmith.dev'''
-            >>> anonymized = anonymizer.anonymize_resume(original)
-            >>> print(anonymized)
-            [NAME_REDACTED]
-            Software Engineer
-            [EMAIL_REDACTED] | [PHONE_REDACTED]
-            [ADDRESS_REDACTED]
-            Portfolio: [WEBSITE_REDACTED]
-        
+            The same text with found PII replaced by markers like [EMAIL_REDACTED].
+
         Note:
-            - If PII removal is disabled in configuration, the original content is returned unchanged
-            - The method logs detailed information about what types and quantities of PII were found
-            - All anonymization operations are logged for audit purposes
-            - The method is designed to be idempotent - running it multiple times produces the same result
+            - Idempotent: running it twice won’t double-redact.
+            - Logs a summary of how many items of each type were removed.
+            - Underlying regex or config errors will propagate as exceptions.
         """
         self.logger.debug("Starting PII anonymization process")
         content = resume_content

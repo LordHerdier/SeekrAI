@@ -23,7 +23,7 @@ health_bp = Blueprint('health', __name__)
 def health_check():
     """Basic health check endpoint.
 
-    Verifies that the following directories exist and are writable:
+    Verifies write access to critical directories:
       - UPLOAD_FOLDER
       - JOB_RESULTS_FOLDER
       - CACHE_FOLDER
@@ -31,10 +31,17 @@ def health_check():
 
     Returns:
         Tuple[Response, int]:
-          - HTTP 200 and JSON {"status":"healthy","timestamp":…,"version":"1.0.0","uptime":…}
-            if all checks pass.
-          - HTTP 503 and JSON {"status":"unhealthy","error":…,"timestamp":…}
-            on first failure or any exception.
+          - (200) JSON {
+                'status': 'healthy',
+                'timestamp': <UTC ISO8601>,
+                'version': '1.0.0',
+                'uptime': <secs since START_TIME>
+            } if all checks pass.
+          - (503) JSON {
+                'status': 'unhealthy',
+                'error': <missing dir or exception message>,
+                'timestamp': <UTC ISO8601>
+            } on first failure or exception.
     """
     try:
         # Check if critical directories exist and are writable
@@ -81,23 +88,39 @@ def detailed_health_check():
     """Detailed health check endpoint.
 
     Performs:
-      1. Directory checks (existence & writability) for UPLOAD, JOB_RESULTS, CACHE, LOGS
-      2. Environment variable checks for OPENAI_API_KEY and SECRET_KEY
-      3. Disk space check in UPLOAD_FOLDER (warning if ≤1 GB)
+      1. Directory checks (existence & writability) for UPLOAD_FOLDER,
+         JOB_RESULTS_FOLDER, CACHE_FOLDER, LOGS_FOLDER.
+      2. Env var checks for OPENAI_API_KEY, SECRET_KEY.
+      3. Disk space check on UPLOAD_FOLDER (warning if ≤ 1 GB free).
 
-    Builds a `checks` dict with individual statuses, then:
-      - Returns HTTP 200 with overall status "healthy" or "warning"
-      - Returns HTTP 503 with status "unhealthy" if any check is unhealthy
+    Builds a `checks` dict:
+      - 'directory_<name>': {
+            'status': 'healthy'|'unhealthy',
+            'path': str,
+            'exists': bool,
+            'writable': bool,
+            'error': str (only on exception)
+        }
+      - 'env_<var>': {
+            'status': 'healthy'|'unhealthy',
+            'configured': bool
+        }
+      - 'disk_space': {
+            'status': 'healthy'|'warning'|'unhealthy',
+            'free_space_gb': float,
+            'error': str (only on exception)
+        }
 
-    Response JSON fields:
-      - status   : "healthy", "warning", or "unhealthy"
-      - timestamp: UTC ISO8601 timestamp
-      - version  : "1.0.0"
-      - uptime   : seconds since START_TIME
-      - checks   : {
-          directory_<name>: {status, path, exists, writable, [error]},
-          env_<var>       : {status, configured},
-          disk_space      : {status, free_space_gb, [error]},
+    Returns:
+        Tuple[Response, int]:
+          - (200) if all checks are healthy or only warnings (status `'healthy'` or `'warning'`).
+          - (503) if any check is unhealthy (status `'unhealthy'`).
+
+    On unexpected exceptions:
+        (503) JSON {
+            'status': 'unhealthy',
+            'error': <exception message>,
+            'timestamp': <UTC ISO8601>
         }
     """
     try:
@@ -184,14 +207,24 @@ def detailed_health_check():
 def readiness_check():
     """Readiness probe endpoint.
 
-    Verifies that the UPLOAD_FOLDER directory exists. Intended for Kubernetes or
-    Docker readiness probes to prevent routing traffic to containers that are
-    not fully initialized.
+    Checks if the UPLOAD_FOLDER is ready for traffic. Ideal for k8s/Docker probes.
 
     Returns:
         Tuple[Response, int]:
-          - HTTP 200 and {"status":"ready","timestamp":…} if upload folder exists.
-          - HTTP 503 and {"status":"not_ready","reason":…,"timestamp":…} otherwise.
+          - (200) JSON {
+                'status': 'ready',
+                'timestamp': <UTC ISO8601>
+            } if UPLOAD_FOLDER exists.
+          - (503) JSON {
+                'status': 'not_ready',
+                'reason': <explanation of missing folder>,
+                'timestamp': <UTC ISO8601>
+            } if the folder is absent.
+          - (503) JSON {
+                'status': 'not_ready',
+                'error': <exception message>,
+                'timestamp': <UTC ISO8601>
+            } if an unexpected error occurs.
     """
     try:
         # Perform minimal checks to determine if the app is ready to serve traffic

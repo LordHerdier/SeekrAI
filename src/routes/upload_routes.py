@@ -15,26 +15,25 @@ import logging
 upload_bp = Blueprint('upload', __name__)
 
 def allowed_file(filename, allowed_extensions):
-    """Determines whether a filename has an allowed extension.
+    """Check if the filename has one of the permitted extensions.
 
     Args:
-        filename (str): The name of the file to check.
-        allowed_extensions (set[str]): Allowed extensions (without leading dot).
+        filename (str): The name of the uploaded file.
+        allowed_extensions (set[str]): Set of lowercase extensions (no dot).
 
     Returns:
-        bool: True if `filename` contains an extension and it is in
-            `allowed_extensions`, False otherwise.
+        bool: True if `filename` contains a period and its extension
+            (after the last '.') is found in `allowed_extensions`; False otherwise.
     """
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
 
 def cleanup_file_on_error(filepath):
-    """Removes the given file if it exists, logging success or failure.
+    """Attempt to delete the file at `filepath` if it exists, logging the outcome.
 
-    This is typically called when resume processing blows up and
-    you don’t want orphaned uploads lying around.
+    This is invoked after a processing exception to avoid leaving stray uploads.
 
     Args:
-        filepath (str): Full path to the file to delete.
+        filepath (str): Absolute or relative path to the file to remove.
 
     Returns:
         None
@@ -48,35 +47,42 @@ def cleanup_file_on_error(filepath):
 
 @upload_bp.route('/')
 def index():
-    """Renders the main upload page.
+    """Render the upload form page.
+
+    Logs the request and returns the `index.html` template containing
+    the resume upload form.
 
     Returns:
-        flask.wrappers.Response: Rendered `index.html` template
-        containing the resume upload form.
+        flask.wrappers.Response: The rendered upload form.
     """
     logging.info("Serving main page")
     return render_template('index.html')
 
 @upload_bp.route('/upload', methods=['POST'])
 def upload_resume():
-    """Handles an uploaded resume file and kicks off processing.
+    """Process a resume upload, invoking `ResumeProcessor`, and handle outcomes.
 
-    - Validates presence and extension of the uploaded file.
-    - Saves it with a timestamped, secure filename.
-    - Extracts `desired_position` and `target_location` from the form.
-    - Invokes `ResumeProcessor.process_resume`.
-    - On success, renders `results.html` with keywords/search terms.
-    - On failure, logs the error, cleans up, flashes a message, and redirects
-      back to the upload form.
+    Workflow:
+      1. Verify the 'resume' part exists in `request.files`.
+      2. Ensure a non-empty filename.
+      3. Check extension against `ALLOWED_EXTENSIONS` from app config.
+      4. Save file with a secure, timestamped name into `UPLOAD_FOLDER`.
+      5. Pull `desired_position` and `target_location` from `request.form`.
+      6. Call `ResumeProcessor.process_resume(...)`.
+         - On success: render `results.html` with a data dict.
+         - On failure: flash error, clean up the saved file, and redirect.
+
+    Flash & Redirect behavior:
+      - Missing file part or blank filename → flash 'No file selected',
+        redirect back to the upload URL.
+      - Invalid extension → flash allowed types, redirect to the main upload page.
+      - Processing exception → flash exception message, remove file, redirect to main.
 
     Returns:
-        flask.wrappers.Response:
-            - On success: rendered `results.html` with `data` dict.
-            - On missing file or invalid type: redirect back to upload page.
-            - On processing error: redirect to index with an error flash.
-
-    Raises:
-        None: All exceptions during processing are caught and handled internally.
+        flask.wrappers.Response: One of:
+          - `render_template('results.html', data=...)` on success.
+          - `redirect(request.url)` if no file or empty filename.
+          - `redirect(url_for('upload.index'))` on invalid type or processing error.
     """
     from flask import current_app
     
