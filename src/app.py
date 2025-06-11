@@ -1,3 +1,20 @@
+"""Flask application factory and development server.
+
+This module contains the Flask application factory and development server configuration.
+It sets up the complete web application with all routes, error handling, logging, and
+configuration management.
+
+Note:
+    This module is intended for development environments only. For production deployments,
+    use wsgi.py instead of running this file directly.
+
+Typical usage example:
+    python src/app.py  # Development server
+    
+For production, use a WSGI server with wsgi.py:
+    gunicorn -c gunicorn.conf.py wsgi:app
+"""
+
 import os
 import time
 from pathlib import Path
@@ -22,7 +39,19 @@ config = get_config()
 project_root = Path(__file__).parent.parent
 
 def create_app():
-    """Application factory function"""
+    """Create and configure the Flask application instance.
+    
+    This factory function creates a Flask application with complete configuration
+    including security settings, directory setup, logging, blueprints registration,
+    and error handlers.
+    
+    Returns:
+        Flask: Configured Flask application instance ready for use.
+        
+    Note:
+        The function sets up production security settings when FLASK_ENV is set
+        to 'production', including secure cookies and session timeout.
+    """
     # Initialize Flask app with correct template and static paths
     app = Flask(__name__, 
                template_folder=str(project_root / 'templates'),
@@ -56,7 +85,11 @@ def create_app():
     # Register request/response logging
     @app.before_request
     def log_request_info():
-        """Log incoming requests"""
+        """Log incoming HTTP requests.
+        
+        Logs request method, URL, and remote IP address for all requests
+        except health check endpoints to reduce log noise.
+        """
         from flask import request
         # Skip logging for health check endpoints to reduce noise
         if not request.path.startswith('/health') and not request.path.startswith('/ready'):
@@ -64,7 +97,17 @@ def create_app():
 
     @app.after_request
     def log_response_info(response):
-        """Log response information"""
+        """Log HTTP response information.
+        
+        Logs response status code for all requests except health check
+        endpoints to reduce log noise.
+        
+        Args:
+            response (Response): Flask response object.
+            
+        Returns:
+            Response: The unmodified response object.
+        """
         from flask import request
         # Skip logging for health check endpoints to reduce noise
         if not request.path.startswith('/health') and not request.path.startswith('/ready'):
@@ -81,18 +124,44 @@ def create_app():
     # Error handlers
     @app.errorhandler(413)
     def too_large(e):
-        """Handle file too large error"""
+        """Handle HTTP 413 Request Entity Too Large errors.
+        
+        Triggered when uploaded files exceed MAX_CONTENT_LENGTH configuration.
+        Logs a warning and returns a user-friendly error message.
+        
+        Args:
+            e (RequestEntityTooLarge): The 413 error exception.
+            
+        Returns:
+            tuple: Error message string and HTTP status code 413.
+        """
         logger.warning("File upload too large")
         return "File too large. Please upload a smaller file.", 413
 
     @app.errorhandler(404)
     def not_found(e):
-        """Handle not found error"""
+        """Handle HTTP 404 Not Found errors.
+        
+        Args:
+            e (NotFound): The 404 error exception.
+            
+        Returns:
+            tuple: Error message string and HTTP status code 404.
+        """
         return "Page not found", 404
 
     @app.errorhandler(500)
     def internal_error(e):
-        """Handle internal server error"""
+        """Handle HTTP 500 Internal Server Error.
+        
+        Logs the error details and returns a generic error message to the user.
+        
+        Args:
+            e (InternalServerError): The 500 error exception.
+            
+        Returns:
+            tuple: Error message string and HTTP status code 500.
+        """
         logger.error(f"Internal server error: {str(e)}")
         return "Internal server error", 500
 
