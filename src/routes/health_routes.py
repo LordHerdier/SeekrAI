@@ -1,5 +1,14 @@
 """
-Health check routes for production monitoring.
+Health check routes for SeekrAI.
+
+This module defines three Flask endpoints under the `health_bp` blueprint:
+
+- /health         : Basic health check (directory existence & write permissions)
+- /health/detailed: Detailed diagnostics (directories, env vars, disk space)
+- /ready          : Readiness probe (upload folder existence)
+
+Each route returns a JSON payload and appropriate HTTP status code
+to integrate with load balancers or container orchestrators.
 """
 
 import os
@@ -12,9 +21,20 @@ health_bp = Blueprint('health', __name__)
 
 @health_bp.route('/health', methods=['GET'])
 def health_check():
-    """
-    Basic health check endpoint for load balancers and monitoring systems.
-    Returns 200 OK if the application is healthy.
+    """Basic health check endpoint.
+
+    Verifies that the following directories exist and are writable:
+      - UPLOAD_FOLDER
+      - JOB_RESULTS_FOLDER
+      - CACHE_FOLDER
+      - LOGS_FOLDER
+
+    Returns:
+        Tuple[Response, int]:
+          - HTTP 200 and JSON {"status":"healthy","timestamp":…,"version":"1.0.0","uptime":…}
+            if all checks pass.
+          - HTTP 503 and JSON {"status":"unhealthy","error":…,"timestamp":…}
+            on first failure or any exception.
     """
     try:
         # Check if critical directories exist and are writable
@@ -58,8 +78,27 @@ def health_check():
 
 @health_bp.route('/health/detailed', methods=['GET'])
 def detailed_health_check():
-    """
-    Detailed health check endpoint with more comprehensive checks.
+    """Detailed health check endpoint.
+
+    Performs:
+      1. Directory checks (existence & writability) for UPLOAD, JOB_RESULTS, CACHE, LOGS
+      2. Environment variable checks for OPENAI_API_KEY and SECRET_KEY
+      3. Disk space check in UPLOAD_FOLDER (warning if ≤1 GB)
+
+    Builds a `checks` dict with individual statuses, then:
+      - Returns HTTP 200 with overall status "healthy" or "warning"
+      - Returns HTTP 503 with status "unhealthy" if any check is unhealthy
+
+    Response JSON fields:
+      - status   : "healthy", "warning", or "unhealthy"
+      - timestamp: UTC ISO8601 timestamp
+      - version  : "1.0.0"
+      - uptime   : seconds since START_TIME
+      - checks   : {
+          directory_<name>: {status, path, exists, writable, [error]},
+          env_<var>       : {status, configured},
+          disk_space      : {status, free_space_gb, [error]},
+        }
     """
     try:
         health_data = {
@@ -143,8 +182,16 @@ def detailed_health_check():
 
 @health_bp.route('/ready', methods=['GET'])
 def readiness_check():
-    """
-    Readiness check endpoint for Kubernetes-style readiness probes.
+    """Readiness probe endpoint.
+
+    Verifies that the UPLOAD_FOLDER directory exists. Intended for Kubernetes or
+    Docker readiness probes to prevent routing traffic to containers that are
+    not fully initialized.
+
+    Returns:
+        Tuple[Response, int]:
+          - HTTP 200 and {"status":"ready","timestamp":…} if upload folder exists.
+          - HTTP 503 and {"status":"not_ready","reason":…,"timestamp":…} otherwise.
     """
     try:
         # Perform minimal checks to determine if the app is ready to serve traffic
