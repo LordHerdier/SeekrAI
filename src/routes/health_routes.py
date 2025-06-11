@@ -1,5 +1,14 @@
 """
-Health check routes for production monitoring.
+Health check routes for SeekrAI.
+
+This module defines three Flask endpoints under the `health_bp` blueprint:
+
+- /health         : Basic health check (directory existence & write permissions)
+- /health/detailed: Detailed diagnostics (directories, env vars, disk space)
+- /ready          : Readiness probe (upload folder existence)
+
+Each route returns a JSON payload and appropriate HTTP status code
+to integrate with load balancers or container orchestrators.
 """
 
 import os
@@ -12,9 +21,27 @@ health_bp = Blueprint('health', __name__)
 
 @health_bp.route('/health', methods=['GET'])
 def health_check():
-    """
-    Basic health check endpoint for load balancers and monitoring systems.
-    Returns 200 OK if the application is healthy.
+    """Basic health check endpoint.
+
+    Verifies write access to critical directories:
+      - UPLOAD_FOLDER
+      - JOB_RESULTS_FOLDER
+      - CACHE_FOLDER
+      - LOGS_FOLDER
+
+    Returns:
+        Tuple[Response, int]:
+          - (200) JSON {
+                'status': 'healthy',
+                'timestamp': <UTC ISO8601>,
+                'version': '1.0.0',
+                'uptime': <secs since START_TIME>
+            } if all checks pass.
+          - (503) JSON {
+                'status': 'unhealthy',
+                'error': <missing dir or exception message>,
+                'timestamp': <UTC ISO8601>
+            } on first failure or exception.
     """
     try:
         # Check if critical directories exist and are writable
@@ -58,8 +85,43 @@ def health_check():
 
 @health_bp.route('/health/detailed', methods=['GET'])
 def detailed_health_check():
-    """
-    Detailed health check endpoint with more comprehensive checks.
+    """Detailed health check endpoint.
+
+    Performs:
+      1. Directory checks (existence & writability) for UPLOAD_FOLDER,
+         JOB_RESULTS_FOLDER, CACHE_FOLDER, LOGS_FOLDER.
+      2. Env var checks for OPENAI_API_KEY, SECRET_KEY.
+      3. Disk space check on UPLOAD_FOLDER (warning if ≤ 1 GB free).
+
+    Builds a `checks` dict:
+      - 'directory_<name>': {
+            'status': 'healthy'|'unhealthy',
+            'path': str,
+            'exists': bool,
+            'writable': bool,
+            'error': str (only on exception)
+        }
+      - 'env_<var>': {
+            'status': 'healthy'|'unhealthy',
+            'configured': bool
+        }
+      - 'disk_space': {
+            'status': 'healthy'|'warning'|'unhealthy',
+            'free_space_gb': float,
+            'error': str (only on exception)
+        }
+
+    Returns:
+        Tuple[Response, int]:
+          - (200) if all checks are healthy or only warnings (status `'healthy'` or `'warning'`).
+          - (503) if any check is unhealthy (status `'unhealthy'`).
+
+    On unexpected exceptions:
+        (503) JSON {
+            'status': 'unhealthy',
+            'error': <exception message>,
+            'timestamp': <UTC ISO8601>
+        }
     """
     try:
         health_data = {
@@ -143,8 +205,26 @@ def detailed_health_check():
 
 @health_bp.route('/ready', methods=['GET'])
 def readiness_check():
-    """
-    Readiness check endpoint for Kubernetes-style readiness probes.
+    """Readiness probe endpoint.
+
+    Checks if the UPLOAD_FOLDER is ready for traffic. Ideal for k8s/Docker probes.
+
+    Returns:
+        Tuple[Response, int]:
+          - (200) JSON {
+                'status': 'ready',
+                'timestamp': <UTC ISO8601>
+            } if UPLOAD_FOLDER exists.
+          - (503) JSON {
+                'status': 'not_ready',
+                'reason': <explanation of missing folder>,
+                'timestamp': <UTC ISO8601>
+            } if the folder is absent.
+          - (503) JSON {
+                'status': 'not_ready',
+                'error': <exception message>,
+                'timestamp': <UTC ISO8601>
+            } if an unexpected error occurs.
     """
     try:
         # Perform minimal checks to determine if the app is ready to serve traffic

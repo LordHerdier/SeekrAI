@@ -6,13 +6,50 @@ from pathlib import Path
 
 
 class FileReader:
-    """Handles reading content from various file formats"""
+    """Read and extract text from various document formats.
+
+    Supports plain-text (.txt), PDF (.pdf), and Microsoft Word (.docx) files.
+    Uses robust error handling and logging to trace file operations and errors.
+    Note: Legacy .doc files are not natively supported by python-docx and may fail.
+
+    Attributes:
+        logger (logging.Logger): Logger for recording operations and errors.
+
+    Example:
+        reader = FileReader()
+        content = reader.read_resume_file("resume.pdf")
+    """
     
     def __init__(self):
+        """Initialize the FileReader with a configured logger.
+        
+        Sets up logging for the FileReader instance to track file processing
+        operations, errors, and debug information.
+        """
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
     
     def read_resume_file(self, file_path: str) -> str:
-        """Read resume content from various file formats"""
+        """Extract text content based on file extension.
+
+        Detects file type from the extension of `file_path` and delegates
+        to the appropriate handler: `_read_txt_file`, `_read_pdf_file`,
+        or `_read_docx_file`.
+
+        Args:
+            file_path (str): Path to the file to read.
+
+        Returns:
+            str: Extracted text.  
+                - For .txt files, may be an empty string if there's no content.  
+                - For .pdf and .docx, raises `ValueError` if no extractable text.
+
+        Raises:
+            FileNotFoundError: If `file_path` does not exist.
+            PermissionError: If the file isn't accessible.
+            ValueError: If the extension is unsupported, or if a .pdf/.docx
+                contains no extractable text.
+            Exception: Other I/O or parsing errors, as logged and re-raised.
+        """
         self.logger.info(f"Reading resume file: {file_path}")
         file_extension = file_path.lower().split('.')[-1]
         
@@ -34,7 +71,34 @@ class FileReader:
             raise
     
     def _read_txt_file(self, file_path: str) -> str:
-        """Read content from TXT file"""
+        """Read content from a plain text file with encoding fallback.
+        
+        Attempts to read the text file using UTF-8 encoding first, and falls back
+        to Latin-1 encoding if UTF-8 fails. This approach handles most common
+        encoding scenarios for text files.
+        
+        Args:
+            file_path (str): Path to the text file to be read.
+        
+        Returns:
+            str: The complete text content of the file as a string.
+        
+        Raises:
+            FileNotFoundError: If the specified file does not exist.
+            PermissionError: If the file cannot be read due to permissions.
+            OSError: For other file system related errors.
+        
+        Example:
+            >>> reader = FileReader()
+            >>> content = reader._read_txt_file("resume.txt")
+            >>> print(f"Read {len(content)} characters")
+            Read 1500 characters
+        
+        Note:
+            This method first attempts UTF-8 encoding (most common for modern text files)
+            and automatically falls back to Latin-1 if a UnicodeDecodeError occurs.
+            The encoding used is logged for debugging purposes.
+        """
         try:
             with open(file_path, 'r', encoding='utf-8') as file:
                 content = file.read()
@@ -48,7 +112,39 @@ class FileReader:
                 return content
     
     def _read_pdf_file(self, file_path: str) -> str:
-        """Read content from PDF file"""
+        """Read and extract text content from a PDF file.
+        
+        Uses PyPDF2 library to extract text from all pages of a PDF document.
+        Handles multi-page documents and filters out empty pages. Provides detailed
+        logging for each page processed and handles extraction errors gracefully.
+        
+        Args:
+            file_path (str): Path to the PDF file to be read.
+        
+        Returns:
+            str: Concatenated text content from all pages, with pages separated
+                by newline characters. Only non-empty pages are included.
+        
+        Raises:
+            ValueError: If the PDF contains no extractable text (may be image-based
+                or corrupted), or if the file is not a valid PDF.
+            FileNotFoundError: If the specified PDF file does not exist.
+            PermissionError: If the PDF file cannot be opened due to permissions.
+            PyPDF2.errors.PdfReadError: If the PDF file is corrupted or invalid.
+        
+        Example:
+            >>> reader = FileReader()
+            >>> content = reader._read_pdf_file("document.pdf")
+            >>> pages = content.split('\n')
+            >>> print(f"Extracted content from {len(pages)} pages")
+            Extracted content from 3 pages
+        
+        Note:
+            - Empty or image-only pages are skipped and logged as warnings
+            - Text extraction failures on individual pages are logged but don't
+              stop processing of remaining pages
+            - The method validates that at least some text was extracted before returning
+        """
         content = []
         
         with open(file_path, 'rb') as file:
@@ -76,7 +172,29 @@ class FileReader:
         return full_content
     
     def _read_docx_file(self, file_path: str) -> str:
-        """Read content from DOCX file"""
+        """Extract text from a .docx file using python-docx.
+
+        Iterates through all non-empty paragraphs and joins them
+        with newline separators.
+
+        Args:
+            file_path (str): Path to the .docx file.
+
+        Returns:
+            str: Text content composed of all non-empty paragraphs.
+
+        Raises:
+            FileNotFoundError: If the file is missing.
+            PermissionError: If the file isn’t accessible.
+            ValueError: If the document has no text, or if reading fails
+                due to format issues or corruption.
+        
+        Example:
+            >>> reader = FileReader()
+            >>> content = reader._read_docx_file("document.docx")
+            >>> print(f"Read {len(content)} characters")
+            Read 1500 characters
+        """
         try:
             doc = Document(file_path)
             content = []

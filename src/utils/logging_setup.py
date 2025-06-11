@@ -1,3 +1,9 @@
+
+"""Logging setup utilities for configuring application-wide logging.
+
+This module provides functions for setting up and configuring logging for the
+entire application, including console and file handlers with rotation.
+"""
 import logging
 import logging.handlers
 from pathlib import Path
@@ -5,7 +11,28 @@ from config_loader import get_config
 
 
 def setup_logging():
-    """Configure application-wide logging"""
+    """Configure application-wide logging with console and file handlers.
+    
+    Sets up a comprehensive logging system with rotating file handlers for both
+    general application logs and error-specific logs. Creates the logs directory
+    if it doesn't exist and configures logging based on application configuration.
+    
+    The function configures:
+    - Console handler for real-time log output
+    - Rotating file handler for general application logs (seekrai.log)
+    - Rotating file handler for error-level logs only (seekrai_errors.log)
+    
+    All handlers use the same formatter and log level as specified in the
+    application configuration.
+    
+    Returns:
+        logging.Logger: The configured root logger instance with all handlers attached.
+        
+    Raises:
+        OSError: If the logs directory cannot be created due to permission issues.
+        KeyError: If required configuration keys are missing from the config.
+        AttributeError: If an invalid log level is specified in the configuration.
+    """
     config = get_config()
     
     # Create logs directory if it doesn't exist
@@ -56,7 +83,24 @@ def setup_logging():
 
 
 def setup_flask_logging(app):
-    """Setup Flask-specific logging"""
+    """Setup Flask-specific logging by integrating with application logging configuration.
+    
+    Configures the Flask application's logger to use the same handlers and log level
+    as the main application logging system. This ensures consistent logging behavior
+    across the entire application, including Flask's internal logging.
+    
+    Args:
+        app (flask.Flask): The Flask application instance to configure logging for.
+        
+    Returns:
+        logging.Logger: The configured logger instance that's now being used by
+            both the application and Flask.
+            
+    Raises:
+        OSError: If the logs directory cannot be created during setup_logging().
+        KeyError: If required configuration keys are missing from the config.
+        AttributeError: If an invalid log level is specified in the configuration.
+    """
     logger = setup_logging()
     
     # Set Flask's logger to use our configuration

@@ -1,3 +1,8 @@
+"""File management routes for the SeekrAI platform.
+
+Provides file download, listing, cleanup, and cache‐info endpoints via a Flask blueprint.
+"""
+
 import os
 from flask import Blueprint, render_template, request, jsonify, send_file, current_app, redirect, url_for, flash
 from werkzeug.utils import secure_filename
@@ -10,7 +15,20 @@ file_bp = Blueprint('files', __name__)
 
 @file_bp.route('/download/<filename>')
 def download_file(filename):
-    """Download generated CSV file from job results folder"""
+    """
+    Serve a CSV from JOB_RESULTS_FOLDER as an attachment.
+
+    Sanitizes `filename` to prevent path traversal, checks for existence,
+    then returns it with `send_file(as_attachment=True)`.
+
+    Args:
+        filename (str): Base filename to serve (no path separators).
+
+    Returns:
+        200: send_file response with attachment headers.
+        404: ("File not found", 404) if missing.
+        500: ("Error downloading file", 500) on unexpected errors.
+    """
     logging.info(f"File download requested: {filename}")
     try:
         # Security check: ensure filename doesn't have path traversal
@@ -30,7 +48,19 @@ def download_file(filename):
 
 @file_bp.route('/files')
 def file_management():
-    """File management page - shows uploaded resumes and generated job results"""
+    """
+    Render 'files.html' with lists of upload and result files.
+
+    Scans UPLOAD_FOLDER and JOB_RESULTS_FOLDER, collects each file’s name,
+    size (KB), and mtime, sorts newest→oldest, and passes them to the template.
+    On any error, renders with empty lists and an 'error' message.
+
+    Returns:
+        HTML 200: rendered template with:
+            - uploaded_files: List[Dict(name, size, modified)]
+            - result_files:  List[Dict(name, size, modified)]
+        HTML 200: same template + error message on failure.
+    """
     logging.info("File management page requested")
     
     try:
@@ -79,7 +109,29 @@ def file_management():
 
 @file_bp.route('/cleanup_files', methods=['POST'])
 def cleanup_files():
-    """Clean up old files based on user selection"""
+    """
+    Delete files older than `max_age_days` in uploads/results folders and return JSON.
+
+    Request JSON:
+        {
+            "type": "uploads"|"results"|"all",   # default "all"
+            "max_age_days": int                  # default 7
+        }
+
+    Returns:
+        JSON 200:
+            {
+                success: True,
+                deleted_files: [{name, type, size}, …],
+                total_files_deleted: int,
+                total_size_freed_kb: float
+            }
+        JSON 500:
+            {
+                success: False,
+                error: str
+            }
+    """
     logging.info("File cleanup request received")
     
     try:
@@ -94,6 +146,12 @@ def cleanup_files():
         total_size_freed = 0
         
         def cleanup_directory(folder_path, file_type):
+            """Helper function to clean up files in a specific directory.
+            
+            Args:
+                folder_path (str): Path to the directory to clean up
+                file_type (str): Type identifier for logging ('upload' or 'result')
+            """
             nonlocal deleted_files, total_size_freed
             folder = Path(folder_path)
             if not folder.exists():
@@ -141,7 +199,13 @@ def cleanup_files():
 
 @file_bp.route('/cache')
 def cache_info():
-    """Display cache information"""
+    """
+    Render 'cache.html' with cache statistics from ResumeProcessor.
+
+    Fetches cache data via `ResumeProcessor.get_cache_info()` and passes:
+        - cache_info: dict (directory, counts, sizes, per-file details)
+    On error, renders with empty cache_info and an 'error' message.
+    """
     logging.info("Cache info requested")
     try:
         processor = ResumeProcessor()
@@ -153,7 +217,15 @@ def cache_info():
 
 @file_bp.route('/clear_cache', methods=['POST'])
 def clear_cache():
-    """Clear the resume processing cache"""
+    """
+    Clear all cached resume data and redirect to cache page with flash status.
+
+    Calls `ResumeProcessor.clear_cache()`, flashes a success or error message,
+    then redirects to the cache info endpoint.
+
+    Returns:
+        Redirect (302) to 'files.cache_info'.
+    """
     logging.info("Cache clear request received")
     try:
         processor = ResumeProcessor()

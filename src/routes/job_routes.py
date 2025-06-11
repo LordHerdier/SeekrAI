@@ -1,3 +1,15 @@
+"""
+Job search routes for the SeekrAI platform.
+
+This module defines a Flask Blueprint (`job_bp`) exposing endpoints for initiating job
+searches (`/search_jobs`) and retrieving search progress (`/job_progress/<job_id>`).
+It supports both synchronous and asynchronous searches, with optional analysis via
+`ResumeProcessor`. Progress is stored in Redis when available (with automatic
+fallback to in-memory storage) and includes phases: initializing, scraping,
+analysis, and completion. Utility functions handle sanitization for JSON and
+filename generation.
+"""
+
 import os
 import csv
 import json
@@ -28,7 +40,15 @@ job_progress_storage = {}
 progress_lock = threading.Lock()
 
 def get_redis_client():
-    """Get Redis client instance"""
+    """Return a live Redis client or None if unavailable.
+
+    Reads `cache.redis_url` from config (defaults to redis://localhost:6379/0),
+    tries to connect and ping. On any error, logs a warning and returns None
+    (so callers fall back to in-memory storage).
+
+    Returns:
+        redis.Redis or None: Connected Redis client, or None on failure.
+    """
     try:
         config = get_config()
         redis_url = config.get('cache.redis_url', 'redis://localhost:6379/0')
@@ -41,7 +61,19 @@ def get_redis_client():
         return None
 
 def update_job_progress(job_id, phase, percent, details=None, analysis_progress=None):
-    """Update progress for a job search"""
+    """Store progress for a job, preferring Redis but falling back to memory.
+
+    Builds a dict with phase, percent, optional details and analysis_progress,
+    plus a timestamp. If Redis is flagged and reachable, sets it with a 1h TTL;
+    otherwise safely writes into a thread-locked dict.
+
+    Args:
+        job_id (str): Unique job UUID.
+        phase (str): One of 'initializing', 'scraping', 'analyzing', 'complete', etc.
+        percent (int): 0–100 progress percent.
+        details (str, optional): Human-readable phase info.
+        analysis_progress (dict, optional): Batch progress metadata.
+    """
     progress_data = {
         'phase': phase,
         'percent': percent,
@@ -69,7 +101,18 @@ def update_job_progress(job_id, phase, percent, details=None, analysis_progress=
         job_progress_storage[job_id] = progress_data
 
 def get_job_progress(job_id):
-    """Get progress for a job search"""
+    """Retrieve stored progress for a job, checking Redis first.
+
+    If Redis is reachable, tries `get(job_progress:{job_id})` and JSON-loads it.
+    On any failure or cache miss, reads from the in-memory dict under lock.
+
+    Args:
+        job_id (str): UUID returned when job was queued.
+
+    Returns:
+        dict: Progress dict with keys phase, percent, details, analysis_progress, timestamp;
+              empty if not found.
+    """
     # Try Redis first
     if REDIS_AVAILABLE:
         redis_client = get_redis_client()
@@ -86,7 +129,13 @@ def get_job_progress(job_id):
         return job_progress_storage.get(job_id, {})
 
 def cleanup_job_progress(job_id):
-    """Clean up progress storage for completed job"""
+    """Delete progress for a job from Redis (if possible) and memory.
+
+    Ensures no leftover state for completed or cancelled jobs.
+
+    Args:
+        job_id (str): UUID of the job to remove.
+    """
     # Try Redis first
     if REDIS_AVAILABLE:
         redis_client = get_redis_client()
@@ -101,7 +150,21 @@ def cleanup_job_progress(job_id):
         job_progress_storage.pop(job_id, None)
 
 def sanitize_string_for_json(value):
-    """Sanitize a string value for safe JSON serialization"""
+    """Normalize and scrub a string for safe JSON embedding.
+
+    - Unicode-normalizes to ASCII where possible.
+    - Replaces quotes/backslashes/control chars.
+    - Collapses whitespace into spaces.
+    - Truncates to 1000 chars with an ellipsis.
+
+    Non-string inputs are returned unchanged.
+
+    Args:
+        value (Any): Input, expected str.
+
+    Returns:
+        str or Any: Sanitized string, or original value if not a str.
+    """
     if not isinstance(value, str):
         return value
     
@@ -138,7 +201,19 @@ def sanitize_string_for_json(value):
     return sanitized
 
 def sanitize_job_for_json(job_dict):
-    """Sanitize a job dictionary for JSON serialization"""
+    """Recursively apply JSON-safe sanitization to all strings in a job dict.
+
+    Walks through each value:
+      - If str, passes through sanitize_string_for_json.
+      - If list, sanitizes each string element.
+      - Otherwise leaves it intact.
+
+    Args:
+        job_dict (dict): Raw job fields.
+
+    Returns:
+        dict: New dict with all text fields cleaned for JSON.
+    """
     sanitized_job = {}
     for key, value in job_dict.items():
         if isinstance(value, str):
@@ -152,7 +227,23 @@ def sanitize_job_for_json(job_dict):
 
 @job_bp.route('/search_jobs', methods=['POST'])
 def search_jobs():
-    """Handle job search with processed resume data"""
+    """Start a job search, sync or async depending on config & size.
+
+    Expects JSON body with:
+      - search_terms (dict)
+      - desired_position (str)
+      - target_location (str)
+      - results_wanted (int, falls back to config default)
+      - filename (str)
+      - keywords (dict)
+
+    If analysis is on or results_wanted > 10, spins off a background thread,
+    seeds initial progress, and returns {'success': True, 'job_id': ...}. Otherwise
+    runs synchronously and returns the full JSON payload.
+
+    Returns:
+        Response: Flask JSON response with either job_id for polling or final data.
+    """
     config = get_config()
     logging.info("Job search request received")
     
@@ -208,7 +299,25 @@ def search_jobs():
         }), 500
 
 def perform_simple_job_search(search_terms, desired_position, target_location, results_wanted, filename, keywords, config, job_results_folder):
-    """Perform a simple synchronous job search without progress tracking"""
+    """Run a quick, synchronous scrape and return results immediately.
+
+    Builds search term and location, calls scrape_jobs, truncates to
+    `results_wanted`, writes a CSV to `job_results_folder`, converts to
+    JSON-safe dicts, and returns a Flask JSON response.
+
+    Args:
+        search_terms (dict): primary_search_terms, location overrides, etc.
+        desired_position (str): Position title to prepend.
+        target_location (str): Fallback geo location.
+        results_wanted (int): Max jobs.
+        filename (str): Base filename for output.
+        keywords (dict): (Ignored here; analysis off).
+        config: App config object.
+        job_results_folder (str): Directory for CSV output.
+
+    Returns:
+        Response: jsonify({... jobs, count, search_params, output_file, analysis flags ...})
+    """
     try:
         # Prepare search parameters
         primary_terms = search_terms.get("primary_search_terms", ["software engineer"])
@@ -267,7 +376,30 @@ def perform_simple_job_search(search_terms, desired_position, target_location, r
         }), 500
 
 def perform_job_search_with_progress(job_id, search_terms, desired_position, target_location, results_wanted, filename, keywords, config, job_results_folder):
-    """Perform job search with progress tracking in background thread"""
+    """Background job that scrapes, optionally analyzes, and updates progress.
+
+    Workflow:
+      1. initializing → scraping (5%→50%)
+      2. scrape via scrape_jobs()
+      3. optionally analyze in batches (50%→95%) via analyze_jobs_with_progress
+      4. write final CSV, convert to list
+      5. store complete progress with results under job_progress:<job_id>
+      6. schedule in-memory cleanup in ~5m
+
+    Args:
+        job_id (str): Job UUID.
+        search_terms (dict): As above.
+        desired_position (str): As above.
+        target_location (str): As above.
+        results_wanted (int): As above.
+        filename (str): As above.
+        keywords (dict): Keywords for deeper analysis.
+        config: App config.
+        job_results_folder (str): Where to drop CSV.
+
+    Returns:
+        list[dict]: Sanitized job dicts, same format as the API payload.
+    """
     try:
         update_job_progress(job_id, 'scraping', 5, 'Preparing job search...')
         
@@ -433,7 +565,23 @@ def perform_job_search_with_progress(job_id, search_terms, desired_position, tar
         update_job_progress(job_id, 'error', 0, f'Error: {str(e)}')
 
 def analyze_jobs_with_progress(job_id, processor, jobs_list, keywords, batch_size, total_batches):
-    """Analyze jobs with progress updates"""
+    """Analyze jobs in slices, updating percent status after each batch.
+
+    Splits jobs_list into `batch_size`, calls
+    `processor._analyze_job_batch` (or default on error), sleeps 0.1s
+    per batch to smooth UI. Progress goes from 55% up to 95%.
+
+    Args:
+        job_id (str): Same UUID for progress key.
+        processor (ResumeProcessor): Must support _analyze_job_batch() etc.
+        jobs_list (list[dict]): Raw scraped jobs.
+        keywords (dict): Analysis keywords.
+        batch_size (int): Jobs per batch.
+        total_batches (int): Number of batches.
+
+    Returns:
+        list[dict]: Inputs augmented with analysis results.
+    """
     analyzed_jobs = []
     
     for batch_idx in range(total_batches):
@@ -476,14 +624,38 @@ def analyze_jobs_with_progress(job_id, processor, jobs_list, keywords, batch_siz
     return analyzed_jobs
 
 def generate_output_filename(filename, desired_position):
-    """Generate output filename for job results"""
+    """Build a timestamped CSV filename for job results.
+
+    Strips any prefix up to first '_', uses the remainder as resume_name,
+    appends lowercased desired_position (underscored), plus YYYYMMDD_HHMMSS.
+
+    Args:
+        filename (str): Original name, e.g. 'resume_MyName.pdf'.
+        desired_position (str): Job title to include.
+
+    Returns:
+        str: 'jobs_{resume_name}_{position}_{timestamp}.csv'
+    """
     resume_name = os.path.splitext(filename.split('_', 1)[1] if '_' in filename else filename)[0]
     position_suffix = f"_{desired_position.replace(' ', '_').lower()}" if desired_position else ""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"jobs_{resume_name}{position_suffix}_{timestamp}.csv"
 
 def convert_jobs_to_response_format(jobs, config):
-    """Convert jobs DataFrame to response format"""
+    """Turn a DataFrame of jobs into JSON-safe dicts for the API.
+
+    - Truncates descriptions to config['job_search.description_max_length'].
+    - Fills missing fields with 'N/A' or empty.
+    - Injects analysis keys if job['analyzed'] is True.
+    - Runs each dict through sanitize_job_for_json.
+
+    Args:
+        jobs (pd.DataFrame): Scraped/processed jobs.
+        config: App config.
+
+    Returns:
+        list[dict]: Clean payload ready for jsonify().
+    """
     jobs_list = []
     description_max_length = config.get('job_search.description_max_length', 500)
     
@@ -529,7 +701,17 @@ def convert_jobs_to_response_format(jobs, config):
 
 @job_bp.route('/job_progress/<job_id>')
 def get_progress(job_id):
-    """Get progress for a specific job search"""
+    """Endpoint to fetch real-time progress for a given job_id.
+
+    Checks Redis first, then in-memory store. If nothing’s found,
+    returns 404 with {'error': 'Job not found or completed'}.
+
+    Args:
+        job_id (str): UUID from `/search_jobs`.
+
+    Returns:
+        Response: JSON with keys phase, percent, details, analysis_progress, timestamp.
+    """
     logging.info(f"Progress requested for job_id: {job_id}")
     
     progress = get_job_progress(job_id)
